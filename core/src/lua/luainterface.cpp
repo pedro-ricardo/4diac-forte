@@ -20,6 +20,7 @@ extern "C" {
 #include <cctype>
 #include <charconv>
 #include <cmath>
+#include <utility>
 
 #include "forte/datatypes/forte_array_dynamic.h"
 #include "../typelib_internal.h"
@@ -279,6 +280,49 @@ namespace forte::lua {
       paTarget.insert(paTarget.end(), paSource.begin(), paSource.end());
     }
 
+    //! Reads the string field paKey of the table at paTable, false if it is missing or not a string
+    bool readString(lua_State *paState, int paTable, const char *paKey, std::string &paValue) {
+      std::size_t length = 0;
+      const char *text =
+          (pushField(paState, paTable, paKey) == LUA_TSTRING) ? lua_tolstring(paState, -1, &length) : nullptr;
+      if (text != nullptr) {
+        paValue.assign(text, length);
+      }
+      lua_pop(paState, 1);
+      return text != nullptr;
+    }
+
+    //! Reads the integer field paKey of the table at paTable, false if it is missing or out of range
+    bool
+    readInteger(lua_State *paState, int paTable, const char *paKey, intmax_t paMin, intmax_t paMax, intmax_t &paValue) {
+      pushField(paState, paTable, paKey);
+      const bool valid = toInteger(paState, -1, paMin, paMax, paValue);
+      lua_pop(paState, 1);
+      return valid;
+    }
+
+    //! Pushes the list field paKey and checks that it has the length given by the count field paCountKey
+    EMGMResponse pushCountedList(lua_State *paState,
+                                 int paTable,
+                                 const char *paKey,
+                                 const char *paCountKey,
+                                 std::size_t &paCount,
+                                 std::string &paError) {
+      EMGMResponse response = readCount(paState, paTable, paCountKey, CLuaFBNetwork::scmMaxEntries, paCount, paError);
+      if (response == EMGMResponse::Ready) {
+        response = pushList(paState, paTable, paKey, paError);
+      }
+      if (response == EMGMResponse::Ready && lua_objlen(paState, -1) != paCount) {
+        lua_pop(paState, 1);
+        response = fail(paError, std::string(paKey) + " must have " + std::to_string(paCount) + " entries");
+      }
+      return response;
+    }
+
+    std::string describeEntry(const char *paKey, std::size_t paIndex) {
+      return std::string(paKey) + " entry " + std::to_string(paIndex);
+    }
+
     bool adapterTypeExists(StringId paTypeName) {
       return getAdapterTypeEntry(paTypeName) != nullptr || getRuntimeAdapterTypeEntry(paTypeName) != nullptr;
     }
@@ -535,6 +579,265 @@ namespace forte::lua {
         .mSocketNames = {},
         .mPlugNames = {},
     };
+  }
+
+  EMGMResponse CLuaFBNetwork::parse(
+      lua_State *paState, int paIndex, const CLuaInterface &paInterface, StringId paTypeNameId, std::string &paError) {
+    const int table = toAbsIndex(paState, paIndex);
+    if (lua_type(paState, table) != LUA_TTABLE) {
+      return fail(paError, "fbnSpec must be a table");
+    }
+
+    EMGMResponse response = parseInternalFBs(paState, table, paTypeNameId, paError);
+    if (response == EMGMResponse::Ready) {
+      response = parseParameters(paState, table, paError);
+    }
+    if (response == EMGMResponse::Ready) {
+      response = parseConnections(paState, table, "eventConnections", "numECons", "fannedOutEventConnections",
+                                  "numFECons", EConnectionKind::Event, paInterface, mEventConnections, paError);
+    }
+    if (response == EMGMResponse::Ready) {
+      response = parseConnections(paState, table, "dataConnections", "numDCons", "fannedOutDataConnections",
+                                  "numFDCons", EConnectionKind::Data, paInterface, mDataConnections, paError);
+    }
+    if (response == EMGMResponse::Ready) {
+      response = parseConnections(paState, table, "adapterConnections", "numAdpCons", nullptr, nullptr,
+                                  EConnectionKind::Adapter, paInterface, mAdapterConnections, paError);
+    }
+    if (response != EMGMResponse::Ready) {
+      return response;
+    }
+
+    std::vector<StringId> names;
+    for (const SLuaInternalFB &internalFB : mInternalFBs) {
+      names.push_back(internalFB.mName);
+    }
+    for (const SLuaAdapterDefinition &adapter : paInterface.getAdapters()) {
+      names.push_back(adapter.mName);
+    }
+    if (hasDuplicates(names)) {
+      return fail(paError, "internal FB and adapter names must be unique");
+    }
+
+    // every data input and output has at most one source
+    std::vector<std::pair<StringId, StringId>> destinations;
+    for (const SCFB_FBConnectionData &connection : mDataConnections) {
+      destinations.emplace_back(connection.mDstFBNameId, std::get<StringId>(connection.mDstId));
+    }
+    std::sort(destinations.begin(), destinations.end());
+    if (std::adjacent_find(destinations.begin(), destinations.end()) != destinations.end()) {
+      return fail(paError, "a data input or output is connected more than once");
+    }
+
+    mFBNData = {
+        .mEventConnections = mEventConnections,
+        .mDataConnections = mDataConnections,
+        .mAdapterConnections = mAdapterConnections,
+    };
+    return EMGMResponse::Ready;
+  }
+
+  EMGMResponse
+  CLuaFBNetwork::parseInternalFBs(lua_State *paState, int paIndex, StringId paTypeNameId, std::string &paError) {
+    std::size_t count = 0;
+    if (EMGMResponse response = pushCountedList(paState, paIndex, "internalFBs", "numFBs", count, paError);
+        response != EMGMResponse::Ready) {
+      return response;
+    }
+    EMGMResponse response = EMGMResponse::Ready;
+    for (std::size_t i = 1; response == EMGMResponse::Ready && i <= count; ++i) {
+      lua_rawgeti(paState, -1, static_cast<int>(i));
+      const int entry = lua_gettop(paState);
+      std::string name;
+      std::string type;
+      if (lua_type(paState, entry) != LUA_TTABLE || !readString(paState, entry, "fbNameID", name) ||
+          !readString(paState, entry, "fbTypeID", type) || !isIdentifier(name) || !isTypeName(type)) {
+        response = fail(paError, describeEntry("internalFBs", i) + " is invalid");
+      } else {
+        const SLuaInternalFB internalFB{.mName = StringId::insert(name), .mTypeName = StringId::insert(type)};
+        if (internalFB.mTypeName == paTypeNameId) {
+          response = fail(paError, "internal FB " + name + " has the type of the composite itself");
+        }
+        mInternalFBs.push_back(internalFB);
+      }
+      lua_settop(paState, entry - 1);
+    }
+    lua_pop(paState, 1);
+    return response;
+  }
+
+  EMGMResponse CLuaFBNetwork::parseParameters(lua_State *paState, int paIndex, std::string &paError) {
+    std::size_t count = 0;
+    if (EMGMResponse response = pushCountedList(paState, paIndex, "parameters", "numParams", count, paError);
+        response != EMGMResponse::Ready) {
+      return response;
+    }
+    EMGMResponse response = EMGMResponse::Ready;
+    for (std::size_t i = 1; response == EMGMResponse::Ready && i <= count; ++i) {
+      lua_rawgeti(paState, -1, static_cast<int>(i));
+      const int entry = lua_gettop(paState);
+      intmax_t fbNum = 0;
+      std::string diName;
+      SLuaParameter parameter;
+      if (lua_type(paState, entry) != LUA_TTABLE ||
+          !readInteger(paState, entry, "fbNum", 0, static_cast<intmax_t>(mInternalFBs.size()) - 1, fbNum) ||
+          !readString(paState, entry, "diNameID", diName) || !isIdentifier(diName) ||
+          !readString(paState, entry, "paramValue", parameter.mValue)) {
+        response = fail(paError, describeEntry("parameters", i) + " is invalid");
+      } else {
+        parameter.mFBName = mInternalFBs[static_cast<std::size_t>(fbNum)].mName;
+        parameter.mDIName = StringId::insert(diName);
+        mParameters.push_back(std::move(parameter));
+      }
+      lua_settop(paState, entry - 1);
+    }
+    lua_pop(paState, 1);
+    return response;
+  }
+
+  EMGMResponse CLuaFBNetwork::parseConnections(lua_State *paState,
+                                               int paIndex,
+                                               const char *paKey,
+                                               const char *paCountKey,
+                                               const char *paFannedOutKey,
+                                               const char *paFannedOutCountKey,
+                                               EConnectionKind paKind,
+                                               const CLuaInterface &paInterface,
+                                               std::vector<SCFB_FBConnectionData> &paConnections,
+                                               std::string &paError) {
+    std::size_t count = 0;
+    if (EMGMResponse response = pushCountedList(paState, paIndex, paKey, paCountKey, count, paError);
+        response != EMGMResponse::Ready) {
+      return response;
+    }
+    EMGMResponse response = EMGMResponse::Ready;
+    for (std::size_t i = 1; response == EMGMResponse::Ready && i <= count; ++i) {
+      lua_rawgeti(paState, -1, static_cast<int>(i));
+      const int entry = lua_gettop(paState);
+      SCFB_FBConnectionData connection;
+      StringId srcPort;
+      StringId dstPort;
+      if (lua_type(paState, entry) != LUA_TTABLE) {
+        response = fail(paError, describeEntry(paKey, i) + " must be a table");
+      } else {
+        response = readEndpoint(paState, entry, true, paKind, paInterface, connection.mSrcFBNameId, srcPort, paError);
+        if (response == EMGMResponse::Ready) {
+          response =
+              readEndpoint(paState, entry, false, paKind, paInterface, connection.mDstFBNameId, dstPort, paError);
+        }
+        if (response == EMGMResponse::Ready) {
+          connection.mSrcId = srcPort;
+          connection.mDstId = dstPort;
+          paConnections.push_back(connection);
+        } else {
+          paError = describeEntry(paKey, i) + ": " + paError;
+        }
+      }
+      lua_settop(paState, entry - 1);
+    }
+    lua_pop(paState, 1);
+    if (response != EMGMResponse::Ready || paFannedOutKey == nullptr) {
+      return response;
+    }
+
+    // the fanned out list is optional, a missing list means no fanned out connections
+    const bool hasList = pushField(paState, paIndex, paFannedOutKey) != LUA_TNIL;
+    lua_pop(paState, 1);
+    if (!hasList) {
+      return EMGMResponse::Ready;
+    }
+    if (response = pushCountedList(paState, paIndex, paFannedOutKey, paFannedOutCountKey, count, paError);
+        response != EMGMResponse::Ready) {
+      return response;
+    }
+    const std::size_t numPrimaries = paConnections.size();
+    for (std::size_t i = 1; response == EMGMResponse::Ready && i <= count; ++i) {
+      lua_rawgeti(paState, -1, static_cast<int>(i));
+      const int entry = lua_gettop(paState);
+      intmax_t primary = 0;
+      StringId dstPort;
+      if (lua_type(paState, entry) != LUA_TTABLE ||
+          !readInteger(paState, entry, "connectionNum", 0, static_cast<intmax_t>(numPrimaries) - 1, primary)) {
+        response = fail(paError, describeEntry(paFannedOutKey, i) + " has no valid connectionNum");
+      } else {
+        SCFB_FBConnectionData connection = paConnections[static_cast<std::size_t>(primary)];
+        response = readEndpoint(paState, entry, false, paKind, paInterface, connection.mDstFBNameId, dstPort, paError);
+        if (response == EMGMResponse::Ready) {
+          connection.mDstId = dstPort;
+          paConnections.push_back(connection);
+        } else {
+          paError = describeEntry(paFannedOutKey, i) + ": " + paError;
+        }
+      }
+      lua_settop(paState, entry - 1);
+    }
+    lua_pop(paState, 1);
+    return response;
+  }
+
+  EMGMResponse CLuaFBNetwork::readEndpoint(lua_State *paState,
+                                           int paIndex,
+                                           bool paIsSource,
+                                           EConnectionKind paKind,
+                                           const CLuaInterface &paInterface,
+                                           StringId &paFBName,
+                                           StringId &paPortName,
+                                           std::string &paError) const {
+    const char *const idKey = paIsSource ? "srcID" : "dstID";
+    const char *const numKey = paIsSource ? "srcFBNum" : "dstFBNum";
+    const auto adapters = paInterface.getAdapters();
+    std::string port;
+    intmax_t fbNum = 0;
+    if (!readString(paState, paIndex, idKey, port) || !isIdentifier(port)) {
+      return fail(paError, std::string(idKey) + " is invalid");
+    }
+    if (!readInteger(paState, paIndex, numKey, scmOwnInterface,
+                     scmOwnAdapterBase + static_cast<intmax_t>(adapters.size()) - 1, fbNum) ||
+        (fbNum >= static_cast<intmax_t>(mInternalFBs.size()) && fbNum < scmOwnAdapterBase)) {
+      return fail(paError, std::string(numKey) + " is invalid");
+    }
+    const StringId portName = StringId::insert(port);
+
+    if (fbNum == scmOwnInterface) {
+      const SFBInterfaceSpec &spec = paInterface.getSpec();
+      bool exists = false;
+      switch (paKind) {
+        case EConnectionKind::Event:
+          exists = (paIsSource ? spec.getEIID(portName) : spec.getEOID(portName)) != cgInvalidPortId;
+          break;
+        case EConnectionKind::Data:
+          exists = (paIsSource ? spec.getDIID(portName) : spec.getDOID(portName)) != cgInvalidPortId;
+          break;
+        case EConnectionKind::Adapter: return fail(paError, "adapter connections need an adapter at both ends");
+      }
+      if (!exists) {
+        return fail(paError, "the composite has no " + std::string(paIsSource ? "input " : "output ") + port);
+      }
+      paFBName = {};
+      paPortName = portName;
+      return EMGMResponse::Ready;
+    }
+
+    if (fbNum >= scmOwnAdapterBase) {
+      const SLuaAdapterDefinition &adapter = adapters[static_cast<std::size_t>(fbNum - scmOwnAdapterBase)];
+      if (paKind != EConnectionKind::Adapter) {
+        // events and data of an own adapter are pins of the adapter FB inside the network
+        paFBName = adapter.mName;
+        paPortName = portName;
+        return EMGMResponse::Ready;
+      }
+      // the runtime connects only an own plug, as the source, to a socket inside the network
+      if (!paIsSource || !adapter.mIsPlug || portName != adapter.mName) {
+        return fail(paError, "an adapter connection may only start at an own plug, named by the plug's name");
+      }
+      paFBName = {};
+      paPortName = portName;
+      return EMGMResponse::Ready;
+    }
+
+    paFBName = mInternalFBs[static_cast<std::size_t>(fbNum)].mName;
+    paPortName = portName;
+    return EMGMResponse::Ready;
   }
 
 } // namespace forte::lua

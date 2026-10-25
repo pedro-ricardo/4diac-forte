@@ -18,6 +18,7 @@
 #include <string>
 #include <vector>
 
+#include "forte/cfb.h"
 #include "forte/interfacespec.h"
 #include "forte/mgmcmd.h"
 #include "forte/stringid.h"
@@ -164,6 +165,95 @@ namespace forte::lua {
       std::vector<SLuaAdapterDefinition> mAdapters;
       SFBInterfaceSpec mSpec{};
       SFBInterfaceSpec mMirroredSpec{};
+  };
+
+  //! An FB instance inside the network of a Lua composite type
+  struct SLuaInternalFB {
+      StringId mName;
+      StringId mTypeName;
+  };
+
+  //! A parameter of an internal FB, the literal is parsed when an instance is created
+  struct SLuaParameter {
+      StringId mFBName;
+      StringId mDIName;
+      std::string mValue;
+  };
+
+  /*!\brief The network of a Lua composite type, read from the fbnSpec table of its module
+   *
+   * Connections name their endpoints by FB number: the position in internalFBs, -1 for the composite's own
+   * interface, or 65536 + i for its own adapter i (plugs first, then sockets). They are converted to the names
+   * a CCompositeFB connects by. A fanned out connection becomes a plain connection from the source of its primary.
+   */
+  class CLuaFBNetwork {
+    public:
+      //! Upper bound for internal FBs, connections per kind and parameters
+      static constexpr std::size_t scmMaxEntries = 65535;
+      //! The FB number of the composite's own interface
+      static constexpr intmax_t scmOwnInterface = -1;
+      //! The FB number of the composite's own adapter 0
+      static constexpr intmax_t scmOwnAdapterBase = 0x10000;
+
+      CLuaFBNetwork() = default;
+      CLuaFBNetwork(const CLuaFBNetwork &) = delete;
+      CLuaFBNetwork &operator=(const CLuaFBNetwork &) = delete;
+
+      /*!\brief Reads the fbnSpec table at paIndex
+       *
+       * @param paInterface the composite's interface, already read
+       * @param paTypeNameId the composite's type name, an internal FB of the same type is rejected
+       * @return Ready or BadParams
+       */
+      EMGMResponse parse(lua_State *paState,
+                         int paIndex,
+                         const CLuaInterface &paInterface,
+                         StringId paTypeNameId,
+                         std::string &paError);
+
+      [[nodiscard]] const SCFB_FBNData &getFBNData() const {
+        return mFBNData;
+      }
+
+      [[nodiscard]] std::span<const SLuaInternalFB> getInternalFBs() const {
+        return mInternalFBs;
+      }
+
+      [[nodiscard]] std::span<const SLuaParameter> getParameters() const {
+        return mParameters;
+      }
+
+    private:
+      enum class EConnectionKind { Event, Data, Adapter };
+
+      EMGMResponse parseInternalFBs(lua_State *paState, int paIndex, StringId paTypeNameId, std::string &paError);
+      EMGMResponse parseParameters(lua_State *paState, int paIndex, std::string &paError);
+      EMGMResponse parseConnections(lua_State *paState,
+                                    int paIndex,
+                                    const char *paKey,
+                                    const char *paCountKey,
+                                    const char *paFannedOutKey,
+                                    const char *paFannedOutCountKey,
+                                    EConnectionKind paKind,
+                                    const CLuaInterface &paInterface,
+                                    std::vector<SCFB_FBConnectionData> &paConnections,
+                                    std::string &paError);
+      //! Reads one endpoint of the connection table at paIndex
+      EMGMResponse readEndpoint(lua_State *paState,
+                                int paIndex,
+                                bool paIsSource,
+                                EConnectionKind paKind,
+                                const CLuaInterface &paInterface,
+                                StringId &paFBName,
+                                StringId &paPortName,
+                                std::string &paError) const;
+
+      std::vector<SLuaInternalFB> mInternalFBs;
+      std::vector<SLuaParameter> mParameters;
+      std::vector<SCFB_FBConnectionData> mEventConnections;
+      std::vector<SCFB_FBConnectionData> mDataConnections;
+      std::vector<SCFB_FBConnectionData> mAdapterConnections;
+      SCFB_FBNData mFBNData{};
   };
 
   /*!\brief Keeps the type entry of a Lua type instance alive and counts the instance

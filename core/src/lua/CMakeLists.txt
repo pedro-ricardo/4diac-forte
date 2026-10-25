@@ -44,6 +44,7 @@ add_dependencies(forte-core forte-lua-stfunc)
 set(FORTE_LUA_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/luaadapter.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/luabfb.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/luacfb.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/luaengine.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/luainterface.cpp
 )
@@ -51,6 +52,7 @@ set(FORTE_LUA_SOURCES
 target_sources(forte-core PRIVATE
         luaadapter.h
         luabfb.h
+        luacfb.h
         luaengine.h
         luainterface.h
         ${FORTE_LUA_SOURCES}
