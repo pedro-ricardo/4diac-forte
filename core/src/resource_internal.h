@@ -16,6 +16,8 @@
 #include "monitoring.h"
 
 #ifdef FORTE_DYNAMIC_TYPE_LOAD
+#include <memory>
+
 #include "lua/luaengine.h"
 #endif
 
@@ -40,8 +42,16 @@ namespace forte {
       }
 
 #ifdef FORTE_DYNAMIC_TYPE_LOAD
-      CLuaEngine &getLuaEngine() {
-        return luaEngine;
+      /*!\brief The Lua state of this resource's Lua FB instances, created on first use
+       *
+       * Instances keep a reference, so the state outlives them however the resource is torn down.
+       * Only called from the management thread, which creates the instances.
+       */
+      const std::shared_ptr<lua::CLuaEngine> &getLuaEngine() {
+        if (!mLuaEngine) {
+          mLuaEngine = std::make_shared<lua::CLuaEngine>();
+        }
+        return mLuaEngine;
       }
 #endif
 
@@ -59,7 +69,7 @@ namespace forte {
 #endif // FORTE_TRACE_CTF
 
 #ifdef FORTE_DYNAMIC_TYPE_LOAD
-      CLuaEngine luaEngine; //!< The Lua engine for this container
+      std::shared_ptr<lua::CLuaEngine> mLuaEngine;
 #endif
   };
 } // namespace forte

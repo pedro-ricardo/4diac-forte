@@ -35,13 +35,6 @@
 
 using namespace forte::literals;
 
-#ifdef FORTE_DYNAMIC_TYPE_LOAD
-#include "core/lua/luaadaptertypeentry.h"
-#include "core/lua/luabfbtypeentry.h"
-#include "core/lua/luacfbtypeentry.h"
-#include "core/lua/luaengine.h"
-#endif
-
 #include <string>
 
 using namespace std::string_literals;
@@ -261,43 +254,6 @@ namespace forte {
 
   } // namespace
 
-#ifdef FORTE_DYNAMIC_TYPE_LOAD
-
-  namespace {
-
-    EMGMResponse createFBTypeFromLua(forte::StringId typeNameId, const std::string &paLuaScriptAsString) {
-      EMGMResponse retVal = EMGMResponse::UnsupportedType;
-
-      if (paLuaScriptAsString.find("internalFBs") != std::string::npos) { // CFBType
-        if (CLuaCFBTypeEntry::createLuaFBTypeEntry(typeNameId, paLuaScriptAsString) != nullptr) {
-          retVal = EMGMResponse::Ready;
-        } else {
-          retVal = EMGMResponse::InvalidOperation;
-        }
-      } else { // BFBType
-        if (CLuaBFBTypeEntry::createLuaFBTypeEntry(typeNameId, paLuaScriptAsString) != nullptr) {
-          retVal = EMGMResponse::Ready;
-        } else {
-          retVal = EMGMResponse::InvalidOperation;
-        }
-      }
-      return retVal;
-    }
-
-    EMGMResponse createAdapterTypeFromLua(forte::StringId typeNameId, const std::string &paLuaScriptAsString) {
-      EMGMResponse retVal = EMGMResponse::UnsupportedType;
-      if (CLuaAdapterTypeEntry::createLuaAdapterTypeEntry(typeNameId, paLuaScriptAsString) != nullptr) {
-        retVal = EMGMResponse::Ready;
-      } else {
-        retVal = EMGMResponse::InvalidOperation;
-      }
-      return retVal;
-    }
-
-  } // namespace
-
-#endif // FORTE_DYNAMIC_TYPE_LOAD
-
   CResource::CResource(CFBContainer &paDevice,
                        const SFBInterfaceSpec &paInterfaceSpec,
                        const StringId paInstanceNameId) :
@@ -323,19 +279,7 @@ namespace forte {
           retVal = createFB(paCommand.mFirstParam, paCommand.mSecondParam.front(), paCommand.mAdditionalParams);
         } break;
         case EMGMCommandType::CreateFBType:
-#ifdef FORTE_DYNAMIC_TYPE_LOAD
-          retVal = createFBTypeFromLua(paCommand.mFirstParam.front(), paCommand.mAdditionalParams);
-#else
-          retVal = EMGMResponse::UnsupportedCmd;
-#endif
-          break;
-        case EMGMCommandType::CreateAdapterType:
-#ifdef FORTE_DYNAMIC_TYPE_LOAD
-          retVal = createAdapterTypeFromLua(paCommand.mFirstParam.front(), paCommand.mAdditionalParams);
-#else
-          retVal = EMGMResponse::UnsupportedCmd;
-#endif
-          break;
+        case EMGMCommandType::CreateAdapterType: retVal = EMGMResponse::UnsupportedCmd; break;
         case EMGMCommandType::DeleteFBInstance: {
           retVal = deleteFB(paCommand.mFirstParam);
         } break;
