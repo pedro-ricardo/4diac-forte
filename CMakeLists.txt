@@ -36,6 +36,16 @@ project(FORTE
 option(FORTE_TESTS "Build Tests" OFF)
 option(FORTE_SYSTEM_TESTS "FORTE System Tests" OFF)
 
+set(FORTE_USE_LUATYPES "None" CACHE STRING "Function block and adapter types loaded at run time as Lua modules")
+set_property(CACHE FORTE_USE_LUATYPES PROPERTY STRINGS None LuaJIT)
+if (FORTE_USE_LUATYPES STREQUAL "LuaJIT")
+    set(FORTE_DYNAMIC_TYPE_LOAD ON)
+elseif (FORTE_USE_LUATYPES STREQUAL "None")
+    set(FORTE_DYNAMIC_TYPE_LOAD OFF)
+else ()
+    message(FATAL_ERROR "FORTE_USE_LUATYPES must be None or LuaJIT, not '${FORTE_USE_LUATYPES}'")
+endif ()
+
 option(FORTE_BUILD_EXECUTABLE "Build 4diac FORTE as an executable, otherwise build a library" ON)
 mark_as_advanced(FORTE_BUILD_EXECUTABLE)
 
