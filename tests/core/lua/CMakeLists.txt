@@ -14,6 +14,7 @@ if (NOT FORTE_DYNAMIC_TYPE_LOAD)
     return()
 endif ()
 
+forte_test_add_sourcefile_cpp(luaadaptertests.cpp)
 forte_test_add_sourcefile_cpp(luaenginetests.cpp)
 
 set_property(GLOBAL APPEND PROPERTY FORTE_TEST_LIBRARIES PkgConfig::LUAJIT)
