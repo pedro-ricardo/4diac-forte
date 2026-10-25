@@ -328,6 +328,10 @@ namespace forte::lua {
     }
   } // namespace
 
+  bool isValidTypeName(std::string_view paName) {
+    return isTypeName(paName);
+  }
+
   std::unique_ptr<CIEC_ANY> SLuaDataType::createValue() const {
     if (mIsArray) {
       return std::make_unique<CIEC_ARRAY_DYNAMIC>(mLowerBound, mUpperBound, mTypeName);

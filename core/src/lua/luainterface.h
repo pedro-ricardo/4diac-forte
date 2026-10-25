@@ -31,6 +31,9 @@ namespace forte {
 
 namespace forte::lua {
 
+  //! Whether paName is an identifier, optionally qualified with packages (pkg::sub::Name)
+  bool isValidTypeName(std::string_view paName);
+
   //! The data type of one variable of a Lua type, an elementary or compiled type or an array of one
   struct SLuaDataType {
       StringId mTypeName;

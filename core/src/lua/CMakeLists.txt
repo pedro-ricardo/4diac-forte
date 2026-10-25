@@ -47,6 +47,7 @@ set(FORTE_LUA_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/luacfb.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/luaengine.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/luainterface.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/luatypes.cpp
 )
 
 target_sources(forte-core PRIVATE
@@ -55,6 +56,7 @@ target_sources(forte-core PRIVATE
         luacfb.h
         luaengine.h
         luainterface.h
+        luatypes.h
         ${FORTE_LUA_SOURCES}
 )
 

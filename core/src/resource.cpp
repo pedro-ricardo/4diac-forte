@@ -17,6 +17,7 @@
  *         for primitive types
  *    Martin Jobst - add CTF tracing integration
  *    Fabio Gandolfi - send also subapps on requested resources
+ *    Pedro Ricardo C. Souza - create Lua types through management commands
  *******************************************************************************/
 #include "forte/resource.h"
 #include "resource_internal.h"
@@ -32,6 +33,9 @@
 #include "monitoring.h"
 #include "typelib_internal.h"
 #include "gatherdataconn.h"
+#ifdef FORTE_DYNAMIC_TYPE_LOAD
+#include "lua/luatypes.h"
+#endif
 
 using namespace forte::literals;
 
@@ -307,8 +311,23 @@ namespace forte {
         case EMGMCommandType::CreateFBInstance: {
           retVal = createFB(paCommand.mFirstParam, paCommand.mSecondParam.front(), paCommand.mAdditionalParams);
         } break;
+#ifdef FORTE_DYNAMIC_TYPE_LOAD
         case EMGMCommandType::CreateFBType:
-        case EMGMCommandType::CreateAdapterType: retVal = EMGMResponse::UnsupportedCmd; break;
+          retVal = lua::createFBType(paCommand.mFirstParam.front(), std::move(paCommand.mAdditionalParams));
+          // the definition must not show up in the response
+          paCommand.mAdditionalParams.clear();
+          break;
+        case EMGMCommandType::CreateAdapterType:
+          retVal = lua::createAdapterType(paCommand.mFirstParam.front(), std::move(paCommand.mAdditionalParams));
+          paCommand.mAdditionalParams.clear();
+          break;
+#else
+        case EMGMCommandType::CreateFBType:
+        case EMGMCommandType::CreateAdapterType:
+          paCommand.mAdditionalParams.clear();
+          retVal = EMGMResponse::UnsupportedCmd;
+          break;
+#endif
         case EMGMCommandType::DeleteFBInstance: {
           retVal = deleteFB(paCommand.mFirstParam);
         } break;
