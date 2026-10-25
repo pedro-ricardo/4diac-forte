@@ -15,6 +15,8 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
+#include <memory>
 #include <string>
 #include <string_view>
 
@@ -77,6 +79,16 @@ namespace forte::lua {
        */
       bool loadModule(std::string_view paSource, const char *paChunkName, std::string &paError);
 
+      /*!\brief Pushes the module table of a type, running the module in this state on first use
+       *
+       * The table is kept while paType is alive, so all instances of a type in this state share it.
+       * @param paType the type the module belongs to, identifies the cached table
+       */
+      bool pushTypeModule(const std::shared_ptr<const void> &paType,
+                          std::string_view paSource,
+                          const char *paChunkName,
+                          std::string &paError);
+
       /*!\brief Calls the function below paNumArgs arguments on the stack in protected mode
        *
        * Applies the instruction budget. On failure nothing is left on the stack and paError holds the message
@@ -109,7 +121,13 @@ namespace forte::lua {
       static const char *getValue(lua_State *paState, int paIndex, CIEC_ANY &paValue);
 
     private:
+      struct STypeModule {
+          std::weak_ptr<const void> mType;
+          int mRef;
+      };
+
       bool setUp();
+      void releaseExpiredTypeModules();
       void pushSandbox();
       void armBudget();
       void disarmBudget();
@@ -123,6 +141,7 @@ namespace forte::lua {
       int mSandboxFactoryRef;
       int mSTfuncRef;
       bool mValid;
+      std::map<const void *, STypeModule> mTypeModules;
   };
 
 } // namespace forte::lua

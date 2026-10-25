@@ -332,6 +332,35 @@ return function() return newEnv(modules) end, stfuncView
     return true;
   }
 
+  bool CLuaEngine::pushTypeModule(const std::shared_ptr<const void> &paType,
+                                  std::string_view paSource,
+                                  const char *paChunkName,
+                                  std::string &paError) {
+    releaseExpiredTypeModules();
+    if (auto it = mTypeModules.find(paType.get()); it != mTypeModules.end()) {
+      pushRef(it->second.mRef);
+      return true;
+    }
+    if (!loadModule(paSource, paChunkName, paError)) {
+      return false;
+    }
+    lua_pushvalue(mState, -1);
+    mTypeModules.emplace(paType.get(), STypeModule{.mType = paType, .mRef = ref()});
+    return true;
+  }
+
+  void CLuaEngine::releaseExpiredTypeModules() {
+    // an expired entry's address may be reused by a new type, so its table must go before the next lookup
+    for (auto it = mTypeModules.begin(); it != mTypeModules.end();) {
+      if (it->second.mType.expired()) {
+        unref(it->second.mRef);
+        it = mTypeModules.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  }
+
   bool CLuaEngine::call(int paNumArgs, int paNumResults, std::string &paError) {
     const int base = lua_gettop(mState) - paNumArgs;
     lua_pushcfunction(mState, traceback);
