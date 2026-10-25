@@ -1,0 +1,191 @@
+/*******************************************************************************
+ * Copyright (c) 2026 Aimirim STI
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * SPDX-License-Identifier: EPL-2.0
+ *
+ * Contributors:
+ *   Pedro Ricardo C. Souza - initial implementation
+ *******************************************************************************/
+
+#pragma once
+
+#include <cstdint>
+#include <memory>
+#include <span>
+#include <string>
+#include <vector>
+
+#include "forte/interfacespec.h"
+#include "forte/mgmcmd.h"
+#include "forte/stringid.h"
+
+struct lua_State;
+
+namespace forte {
+  class CIEC_ANY;
+}
+
+namespace forte::lua {
+
+  //! The data type of one variable of a Lua type, an elementary or compiled type or an array of one
+  struct SLuaDataType {
+      StringId mTypeName;
+      bool mIsArray = false;
+      intmax_t mLowerBound = 0;
+      intmax_t mUpperBound = 0;
+
+      [[nodiscard]] std::unique_ptr<CIEC_ANY> createValue() const;
+  };
+
+  struct SLuaAdapterDefinition {
+      StringId mName;
+      StringId mTypeName;
+      bool mIsPlug;
+  };
+
+  /*!\brief The interface of a Lua type, read from the interfaceSpec table of its module
+   *
+   * Owns all names and WITH lists, and an SFBInterfaceSpec spanning them. Adapters are kept in the order of
+   * their Lua adapter ID: plugs first, then sockets, each in declaration order.
+   */
+  class CLuaInterface {
+    public:
+      //! Upper bound for events per list, so adapter event IDs ((list ID + 1) << 8 | event) stay unambiguous
+      static constexpr std::size_t scmMaxEvents = 255;
+      //! Data points per list and internal variables, from the 16 bit index of the access constants
+      static constexpr std::size_t scmMaxDataPoints = 65535;
+      //! Adapters per type, from the 8 bit adapter ID and the list ID reserved for composite interfaces
+      static constexpr std::size_t scmMaxAdapters = 255;
+      //! Terminates a run in the EIWith and EOWith lists
+      static constexpr TPortId scmWithDelimiter = 65535;
+
+      CLuaInterface() = default;
+      CLuaInterface(const CLuaInterface &) = delete;
+      CLuaInterface &operator=(const CLuaInterface &) = delete;
+
+      /*!\brief Reads the interfaceSpec table at paIndex
+       *
+       * @param paWithAdapters whether numAdapters and adapterInstanceDefinition are read (FB types)
+       * @param paError receives a description of the problem
+       * @return Ready, BadParams for a malformed table, UnsupportedType for an unknown data or adapter type
+       */
+      EMGMResponse parse(lua_State *paState, int paIndex, bool paWithAdapters, std::string &paError);
+
+      //! Reads the internalVarsInformation table at paIndex, same results as parse
+      EMGMResponse parseInternals(lua_State *paState, int paIndex, std::string &paError);
+
+      [[nodiscard]] const SFBInterfaceSpec &getSpec() const {
+        return mSpec;
+      }
+
+      //! The interface of an adapter's plug side: inputs and outputs of the declared interface swapped
+      [[nodiscard]] const SFBInterfaceSpec &getMirroredSpec() const {
+        return mMirroredSpec;
+      }
+
+      //! Data input indexes sampled with the event input
+      [[nodiscard]] std::span<const TPortId> getEIWith(TEventID paEI) const {
+        return mEIWith[paEI];
+      }
+
+      //! Data output indexes written with the event output
+      [[nodiscard]] std::span<const TPortId> getEOWith(TEventID paEO) const {
+        return mEOWith[paEO];
+      }
+
+      [[nodiscard]] std::span<const SLuaDataType> getDITypes() const {
+        return mDITypes;
+      }
+
+      [[nodiscard]] std::span<const SLuaDataType> getDOTypes() const {
+        return mDOTypes;
+      }
+
+      [[nodiscard]] std::span<const StringId> getInternalNames() const {
+        return mInternalNames;
+      }
+
+      [[nodiscard]] std::span<const SLuaDataType> getInternalTypes() const {
+        return mInternalTypes;
+      }
+
+      //! All adapters by Lua adapter ID
+      [[nodiscard]] std::span<const SLuaAdapterDefinition> getAdapters() const {
+        return mAdapters;
+      }
+
+      [[nodiscard]] std::size_t getNumPlugs() const {
+        return mPlugNames.size();
+      }
+
+      //! Creates one value per entry of paTypes
+      static std::vector<std::unique_ptr<CIEC_ANY>> createValues(std::span<const SLuaDataType> paTypes);
+
+    private:
+      EMGMResponse parseEvents(lua_State *paState,
+                               int paIndex,
+                               const char *paPrefix,
+                               std::vector<StringId> &paNames,
+                               std::vector<std::vector<TPortId>> &paWith,
+                               std::string &paError);
+      EMGMResponse parseWith(lua_State *paState,
+                             int paIndex,
+                             const char *paPrefix,
+                             std::size_t paNumDataPoints,
+                             std::vector<std::vector<TPortId>> &paWith,
+                             std::string &paError);
+      EMGMResponse parseData(lua_State *paState,
+                             int paIndex,
+                             const char *paNumKey,
+                             const char *paNamesKey,
+                             const char *paTypesKey,
+                             std::size_t paMaxNum,
+                             std::vector<StringId> &paNames,
+                             std::vector<SLuaDataType> &paTypes,
+                             std::string &paError);
+      EMGMResponse parseAdapters(lua_State *paState, int paIndex, std::string &paError);
+      void buildSpecs();
+
+      std::vector<StringId> mEINames;
+      std::vector<StringId> mEONames;
+      std::vector<StringId> mDINames;
+      std::vector<StringId> mDONames;
+      std::vector<StringId> mPlugNames;
+      std::vector<StringId> mSocketNames;
+      std::vector<StringId> mInternalNames;
+      std::vector<std::vector<TPortId>> mEIWith;
+      std::vector<std::vector<TPortId>> mEOWith;
+      std::vector<SLuaDataType> mDITypes;
+      std::vector<SLuaDataType> mDOTypes;
+      std::vector<SLuaDataType> mInternalTypes;
+      std::vector<SLuaAdapterDefinition> mAdapters;
+      SFBInterfaceSpec mSpec{};
+      SFBInterfaceSpec mMirroredSpec{};
+  };
+
+  /*!\brief Keeps the type entry of a Lua type instance alive and counts the instance
+   *
+   * Must be the first base of an instance class: the interface spec handed to the function block base lives in
+   * the entry.
+   */
+  template<typename T>
+  class CLuaTypeHolder {
+    protected:
+      explicit CLuaTypeHolder(std::shared_ptr<const T> paTypeEntry) : mTypeEntry(std::move(paTypeEntry)) {
+        mTypeEntry->addInstance();
+      }
+
+      ~CLuaTypeHolder() {
+        mTypeEntry->removeInstance();
+      }
+
+      CLuaTypeHolder(const CLuaTypeHolder &) = delete;
+      CLuaTypeHolder &operator=(const CLuaTypeHolder &) = delete;
+
+      const std::shared_ptr<const T> mTypeEntry;
+  };
+
+} // namespace forte::lua
