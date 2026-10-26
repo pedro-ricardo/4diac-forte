@@ -271,6 +271,44 @@ namespace forte::lua {
       return EMGMResponse::Ready;
     }
 
+    //! Reads the optional list of initial values paKey, one literal or empty string per entry of paTypes
+    EMGMResponse readInitialValues(
+        lua_State *paState, int paTable, const char *paKey, std::vector<SLuaDataType> &paTypes, std::string &paError) {
+      const int type = pushField(paState, paTable, paKey);
+      if (type == LUA_TNIL) {
+        lua_pop(paState, 1);
+        return EMGMResponse::Ready;
+      }
+      if (type != LUA_TTABLE || lua_objlen(paState, -1) != paTypes.size()) {
+        lua_pop(paState, 1);
+        return fail(paError,
+                    std::string(paKey) + " must be a table with " + std::to_string(paTypes.size()) + " entries");
+      }
+      for (std::size_t i = 0; i < paTypes.size(); ++i) {
+        lua_rawgeti(paState, -1, static_cast<int>(i + 1));
+        std::size_t length = 0;
+        const char *text = (lua_type(paState, -1) == LUA_TSTRING) ? lua_tolstring(paState, -1, &length) : nullptr;
+        std::string value = (text != nullptr) ? std::string(text, length) : std::string();
+        lua_pop(paState, 1);
+        if (text == nullptr) {
+          lua_pop(paState, 1);
+          return fail(paError, std::string(paKey) + " entry " + std::to_string(i + 1) + " is not a string");
+        }
+        if (!value.empty()) {
+          const std::unique_ptr<CIEC_ANY> probe = paTypes[i].createValue();
+          if (value.find('\0') != std::string::npos || probe == nullptr ||
+              probe->fromString(value.c_str()) != static_cast<int>(value.size())) {
+            lua_pop(paState, 1);
+            return fail(paError,
+                        std::string(paKey) + " entry " + std::to_string(i + 1) + " is not a valid literal of its type");
+          }
+        }
+        paTypes[i].mInitialValue = std::move(value);
+      }
+      lua_pop(paState, 1);
+      return EMGMResponse::Ready;
+    }
+
     bool hasDuplicates(std::vector<StringId> paNames) {
       std::sort(paNames.begin(), paNames.end());
       return std::adjacent_find(paNames.begin(), paNames.end()) != paNames.end();
@@ -333,10 +371,23 @@ namespace forte::lua {
   }
 
   std::unique_ptr<CIEC_ANY> SLuaDataType::createValue() const {
+    std::unique_ptr<CIEC_ANY> value;
     if (mIsArray) {
-      return std::make_unique<CIEC_ARRAY_DYNAMIC>(mLowerBound, mUpperBound, mTypeName);
+      value = std::make_unique<CIEC_ARRAY_DYNAMIC>(mLowerBound, mUpperBound, mTypeName);
+    } else {
+      value.reset(createDataTypeInstance(mTypeName, nullptr));
     }
-    return std::unique_ptr<CIEC_ANY>(createDataTypeInstance(mTypeName, nullptr));
+    if (value != nullptr && !mInitialValue.empty()) {
+      value->fromString(mInitialValue.c_str());
+    }
+    return value;
+  }
+
+  void SLuaDataType::setInitialValue(CIEC_ANY &paValue) const {
+    paValue.reset();
+    if (!mInitialValue.empty()) {
+      paValue.fromString(mInitialValue.c_str());
+    }
   }
 
   std::vector<std::unique_ptr<CIEC_ANY>> CLuaInterface::createValues(std::span<const SLuaDataType> paTypes) {
@@ -346,6 +397,13 @@ namespace forte::lua {
       values.push_back(type.createValue());
     }
     return values;
+  }
+
+  void CLuaInterface::setInitialValues(std::span<const SLuaDataType> paTypes,
+                                       std::span<const std::unique_ptr<CIEC_ANY>> paValues) {
+    for (std::size_t i = 0; i < paTypes.size() && i < paValues.size(); ++i) {
+      paTypes[i].setInitialValue(*paValues[i]);
+    }
   }
 
   EMGMResponse CLuaInterface::parse(lua_State *paState, int paIndex, bool paWithAdapters, std::string &paError) {
@@ -359,12 +417,12 @@ namespace forte::lua {
       response = parseEvents(paState, table, "EO", mEONames, mEOWith, paError);
     }
     if (response == EMGMResponse::Ready) {
-      response = parseData(paState, table, "numDIs", "DINames", "DIDataTypeNames", scmMaxDataPoints, mDINames, mDITypes,
-                           paError);
+      response = parseData(paState, table, "numDIs", "DINames", "DIDataTypeNames", "DIInitialValues", scmMaxDataPoints,
+                           mDINames, mDITypes, paError);
     }
     if (response == EMGMResponse::Ready) {
-      response = parseData(paState, table, "numDOs", "DONames", "DODataTypeNames", scmMaxDataPoints, mDONames, mDOTypes,
-                           paError);
+      response = parseData(paState, table, "numDOs", "DONames", "DODataTypeNames", "DOInitialValues", scmMaxDataPoints,
+                           mDONames, mDOTypes, paError);
     }
     if (response == EMGMResponse::Ready) {
       response = parseWith(paState, table, "EI", mDINames.size(), mEIWith, paError);
@@ -396,8 +454,9 @@ namespace forte::lua {
     if (lua_type(paState, table) != LUA_TTABLE) {
       return fail(paError, "internalVarsInformation must be a table");
     }
-    EMGMResponse response = parseData(paState, table, "numIntVars", "intVarsNames", "intVarsDataTypeNames",
-                                      scmMaxDataPoints, mInternalNames, mInternalTypes, paError);
+    EMGMResponse response =
+        parseData(paState, table, "numIntVars", "intVarsNames", "intVarsDataTypeNames", "intVarsInitialValues",
+                  scmMaxDataPoints, mInternalNames, mInternalTypes, paError);
     if (response != EMGMResponse::Ready) {
       return response;
     }
@@ -475,6 +534,7 @@ namespace forte::lua {
                                         const char *paNumKey,
                                         const char *paNamesKey,
                                         const char *paTypesKey,
+                                        const char *paInitialValuesKey,
                                         std::size_t paMaxNum,
                                         std::vector<StringId> &paNames,
                                         std::vector<SLuaDataType> &paTypes,
@@ -494,6 +554,9 @@ namespace forte::lua {
     lua_pop(paState, 1);
     if (response == EMGMResponse::Ready && paTypes.size() != count) {
       response = fail(paError, std::string(paTypesKey) + " must have " + std::to_string(count) + " types");
+    }
+    if (response == EMGMResponse::Ready) {
+      response = readInitialValues(paState, paIndex, paInitialValuesKey, paTypes, paError);
     }
     return response;
   }

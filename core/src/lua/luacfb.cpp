@@ -143,12 +143,11 @@ namespace forte::lua {
 
   void CLuaCFB::setInitialValues() {
     CCompositeFB::setInitialValues();
-    for (CGenDataConnection &connection : mIf2InConns) {
-      connection.getValue().reset();
+    const auto diTypes = mTypeEntry->getInterface().getDITypes();
+    for (std::size_t i = 0; i < diTypes.size() && i < mIf2InConns.size(); ++i) {
+      diTypes[i].setInitialValue(mIf2InConns[i].getValue());
     }
-    for (auto &value : mDOs) {
-      value->reset();
-    }
+    CLuaInterface::setInitialValues(mTypeEntry->getInterface().getDOTypes(), mDOs);
   }
 
   CEventConnection *CLuaCFB::getEOConUnchecked(TPortId paEONum) {

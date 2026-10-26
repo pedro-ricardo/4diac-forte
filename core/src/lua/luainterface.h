@@ -40,8 +40,13 @@ namespace forte::lua {
       bool mIsArray = false;
       intmax_t mLowerBound = 0;
       intmax_t mUpperBound = 0;
+      //! The IEC 61131-3 literal the variable starts with, empty for the default of its type
+      std::string mInitialValue;
 
+      //! Creates a value holding the initial value
       [[nodiscard]] std::unique_ptr<CIEC_ANY> createValue() const;
+      //! Sets paValue, a value created by createValue, back to the initial value
+      void setInitialValue(CIEC_ANY &paValue) const;
   };
 
   struct SLuaAdapterDefinition {
@@ -72,13 +77,16 @@ namespace forte::lua {
 
       /*!\brief Reads the interfaceSpec table at paIndex
        *
+       * The optional lists DIInitialValues and DOInitialValues hold one IEC 61131-3 literal per data point, an
+       * empty string for the default of its type. Each literal must parse completely as the declared type.
+       *
        * @param paWithAdapters whether numAdapters and adapterInstanceDefinition are read (FB types)
        * @param paError receives a description of the problem
        * @return Ready, BadParams for a malformed table, UnsupportedType for an unknown data or adapter type
        */
       EMGMResponse parse(lua_State *paState, int paIndex, bool paWithAdapters, std::string &paError);
 
-      //! Reads the internalVarsInformation table at paIndex, same results as parse
+      //! Reads the internalVarsInformation table at paIndex with its optional intVarsInitialValues, as parse
       EMGMResponse parseInternals(lua_State *paState, int paIndex, std::string &paError);
 
       [[nodiscard]] const SFBInterfaceSpec &getSpec() const {
@@ -127,6 +135,9 @@ namespace forte::lua {
 
       //! Creates one value per entry of paTypes
       static std::vector<std::unique_ptr<CIEC_ANY>> createValues(std::span<const SLuaDataType> paTypes);
+      //! Sets each of paValues, created by createValues from paTypes, back to its initial value
+      static void setInitialValues(std::span<const SLuaDataType> paTypes,
+                                   std::span<const std::unique_ptr<CIEC_ANY>> paValues);
 
     private:
       EMGMResponse parseEvents(lua_State *paState,
@@ -146,6 +157,7 @@ namespace forte::lua {
                              const char *paNumKey,
                              const char *paNamesKey,
                              const char *paTypesKey,
+                             const char *paInitialValuesKey,
                              std::size_t paMaxNum,
                              std::vector<StringId> &paNames,
                              std::vector<SLuaDataType> &paTypes,

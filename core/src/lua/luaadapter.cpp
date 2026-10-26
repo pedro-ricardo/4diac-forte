@@ -97,12 +97,9 @@ namespace forte::lua {
 
   void CLuaAdapter::setInitialValues() {
     CAdapter::setInitialValues();
-    for (auto &value : mDIs) {
-      value->reset();
-    }
-    for (auto &value : mDOs) {
-      value->reset();
-    }
+    const CLuaInterface &interface = mTypeEntry->getInterface();
+    CLuaInterface::setInitialValues(mIsPlug ? interface.getDOTypes() : interface.getDITypes(), mDIs);
+    CLuaInterface::setInitialValues(mIsPlug ? interface.getDITypes() : interface.getDOTypes(), mDOs);
   }
 
   CEventConnection *CLuaAdapter::getEOConUnchecked(TPortId paEONum) {

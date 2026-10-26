@@ -211,11 +211,10 @@ namespace forte::lua {
 
   void CLuaBFB::setInitialValues() {
     CBasicFB::setInitialValues();
-    for (auto *values : {&mDIs, &mDOs, &mInternals}) {
-      for (auto &value : *values) {
-        value->reset();
-      }
-    }
+    const CLuaInterface &interface = mTypeEntry->getInterface();
+    CLuaInterface::setInitialValues(interface.getDITypes(), mDIs);
+    CLuaInterface::setInitialValues(interface.getDOTypes(), mDOs);
+    CLuaInterface::setInitialValues(interface.getInternalTypes(), mInternals);
   }
 
   CIEC_ANY *CLuaBFB::getVarInternal(size_t paVarIntNum) {
