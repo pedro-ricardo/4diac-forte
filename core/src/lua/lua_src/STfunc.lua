@@ -25,7 +25,8 @@
 local bit = require("bit")
 local STfunc = {}
 
-local TWO32 = 0x0000000100000000
+-- 2^32 in decimal: Lua 5.1 reads hexadecimal literals through the C library, which may stop at 32 bits
+local TWO32 = 4294967296
 
 -- 32 bit results of the bit library are signed
 local function u32(a)
@@ -256,8 +257,8 @@ function STfunc.ROR32(a, b)
 end
 
 function STfunc.SHL64(a, b)
-  local al = a % 0x0000000100000000
-  local ah = (a - al) / 0x0000000100000000
+  local al = a % TWO32
+  local ah = (a - al) / TWO32
   local oh = 0
   local ol = 0
   if b == 0 then
@@ -273,13 +274,13 @@ function STfunc.SHL64(a, b)
     ol = 0
     oh = bit.lshift(al, b-32);
   end
-  ol = ol % 0x0000000100000000
-  return oh * 0x0000000100000000 + ol
+  ol = ol % TWO32
+  return oh * TWO32 + ol
 end
 
 function STfunc.SHR64(a,b)
-  local al = a % 0x0000000100000000
-  local ah = (a - al) / 0x0000000100000000
+  local al = a % TWO32
+  local ah = (a - al) / TWO32
   local oh = 0
   local ol = 0
   if b == 0 then
@@ -295,8 +296,8 @@ function STfunc.SHR64(a,b)
     ol = bit.rshift(ah, b-32)
     oh = 0;
   end
-  ol = ol % 0x0000000100000000
-  return oh * 0x0000000100000000 + ol
+  ol = ol % TWO32
+  return oh * TWO32 + ol
 end
 
 function STfunc.ROL64(a,b)
@@ -344,45 +345,45 @@ function STfunc.XOR(a, ...)
 end
 
 function STfunc.AND64(a, ...)
-  local ol = a % 0x0000000100000000
-  local oh = (a - ol) / 0x0000000100000000
+  local ol = a % TWO32
+  local oh = (a - ol) / TWO32
   local args = {...}
   for i, val in ipairs(args) do
-    local vl = val % 0x0000000100000000
-    local vh = (val - vl) / 0x0000000100000000
+    local vl = val % TWO32
+    local vh = (val - vl) / TWO32
     ol = bit.band(ol, vl)
     oh = bit.band(oh, vh)
   end
-  ol = ol % 0x0000000100000000
-  return oh * 0x0000000100000000 + ol
+  ol = ol % TWO32
+  return oh * TWO32 + ol
 end
 
 function STfunc.OR64(a, ...)
-  local ol = a % 0x0000000100000000
-  local oh = (a - ol) / 0x0000000100000000
+  local ol = a % TWO32
+  local oh = (a - ol) / TWO32
   local args = {...}
   for i, val in ipairs(args) do
-    local vl = val % 0x0000000100000000
-    local vh = (val - vl) / 0x0000000100000000
+    local vl = val % TWO32
+    local vh = (val - vl) / TWO32
     ol = bit.bor(ol, vl)
     oh = bit.bor(oh, vh)
   end
-  ol = ol % 0x0000000100000000
-  return oh * 0x0000000100000000 + ol
+  ol = ol % TWO32
+  return oh * TWO32 + ol
 end
 
 function STfunc.XOR64(a, ...)
-  local ol = a % 0x0000000100000000
-  local oh = (a - ol) / 0x0000000100000000
+  local ol = a % TWO32
+  local oh = (a - ol) / TWO32
   local args = {...}
   for i, val in ipairs(args) do
-    local vl = val % 0x0000000100000000
-    local vh = (val - vl) / 0x0000000100000000
+    local vl = val % TWO32
+    local vh = (val - vl) / TWO32
     ol = bit.bxor(ol, vl)
     oh = bit.bxor(oh, vh)
   end
-  ol = ol % 0x0000000100000000
-  return oh * 0x0000000100000000 + ol
+  ol = ol % TWO32
+  return oh * TWO32 + ol
 end
 
 function STfunc.NOT1(a)
@@ -402,12 +403,12 @@ function STfunc.NOT32(a)
 end
 
 function STfunc.NOT64(a)
-  local al = a % 0x0000000100000000
-  local ah = (a - al) / 0x0000000100000000
+  local al = a % TWO32
+  local ah = (a - al) / TWO32
   al = bit.bnot(al)
   ah = bit.bnot(ah)
-  al = al % 0x0000000100000000
-  return ah * 0x0000000100000000 + al
+  al = al % TWO32
+  return ah * TWO32 + al
 end
 
 --Selection functions

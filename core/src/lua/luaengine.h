@@ -30,17 +30,17 @@ namespace forte {
 
 namespace forte::lua {
 
-  /*!\brief One LuaJIT state running the Lua modules of run-time types
+  /*!\brief One Lua 5.1 state running the Lua modules of run-time types
    *
    * Every module runs in its own environment table holding a safe subset of the base library, copies of the
-   * string, table, math and bit libraries, and a require that only knows STfunc. There is no io, os, debug, ffi,
-   * package or jit access, and only source text is accepted (no precompiled byte code).
+   * string, table, math and bit libraries, and a require that only knows STfunc. There is no io, os, debug or
+   * package access, and only source text is accepted (no precompiled byte code).
    *
    * Calls into Lua must hold getLock(), as instances of one resource are created from the management thread and
    * executed from the resource's event chain thread.
    *
-   * Lua errors unwind through C++ frames. Functions called from Lua (lua_CFunctions) must therefore not hold
-   * objects with destructors when they raise an error.
+   * Lua errors unwind through C++ frames with longjmp, which skips destructors. Functions called from Lua
+   * (lua_CFunctions) must therefore not hold objects with destructors when they raise an error.
    */
   class CLuaEngine {
     public:

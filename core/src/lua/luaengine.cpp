@@ -9,7 +9,7 @@
  * Contributors:
  *   Martin Jobst - initial API and implementation and/or initial documentation
  *   Alois Zoitl  - upgraded to new FB memory layout
- *   Pedro Ricardo C. Souza - sandboxed modules, IEC value mapping for ARRAY and STRUCT
+ *   Pedro Ricardo C. Souza - sandboxed modules, IEC value mapping for ARRAY and STRUCT, Lua 5.1
  *******************************************************************************/
 
 #include "luaengine.h"
@@ -18,10 +18,12 @@ extern "C" {
 #include <lua.h>
 #include <lualib.h>
 #include <lauxlib.h>
-#include <luajit.h>
 }
 
 #include <cmath>
+#include <type_traits>
+
+#include "luabit.h"
 
 #include "stfunc_source.h"
 
@@ -59,6 +61,10 @@ extern "C" {
 #ifndef FORTE_LUA_INSTRUCTION_LIMIT
 #define FORTE_LUA_INSTRUCTION_LIMIT 0
 #endif
+
+// a Lua built with another number type (as offered for small targets) would break the IEC value mapping
+static_assert(LUA_VERSION_NUM == 501, "the Lua types need Lua 5.1");
+static_assert(std::is_same_v<lua_Number, double>, "the Lua types need Lua numbers to be doubles");
 
 namespace forte::lua {
   namespace {
@@ -145,8 +151,7 @@ return function() return newEnv(modules) end, stfuncView
                        {LUA_STRLIBNAME, luaopen_string},
                        {LUA_TABLIBNAME, luaopen_table},
                        {LUA_MATHLIBNAME, luaopen_math},
-                       {LUA_BITLIBNAME, luaopen_bit},
-                       {LUA_JITLIBNAME, luaopen_jit}};
+                       {cBitLibraryName, openBitLibrary}};
       for (const auto &library : libraries) {
         lua_pushcfunction(paState, library.mOpen);
         lua_pushstring(paState, library.mName);
@@ -304,10 +309,6 @@ return function() return newEnv(modules) end, stfuncView
     }
     mSTfuncRef = luaL_ref(mState, LUA_REGISTRYINDEX);
     mSandboxFactoryRef = luaL_ref(mState, LUA_REGISTRYINDEX);
-    if (mInstructionLimit > 0) {
-      // compiled traces do not run hooks, so a budget needs the interpreter
-      luaJIT_setmode(mState, 0, LUAJIT_MODE_ENGINE | LUAJIT_MODE_OFF);
-    }
     return true;
   }
 
@@ -319,8 +320,12 @@ return function() return newEnv(modules) end, stfuncView
     const int top = lua_gettop(mState);
     std::string chunkName("=");
     chunkName += paChunkName;
-    // "t": text only, precompiled byte code could break the VM
-    if (luaL_loadbufferx(mState, paSource.data(), paSource.size(), chunkName.c_str(), "t") != 0) {
+    // text only, precompiled byte code could break the VM
+    if (!paSource.empty() && paSource.front() == LUA_SIGNATURE[0]) {
+      paError = "attempt to load a binary chunk";
+      return false;
+    }
+    if (luaL_loadbuffer(mState, paSource.data(), paSource.size(), chunkName.c_str()) != 0) {
       const char *message = lua_tostring(mState, -1);
       paError = (message != nullptr) ? message : "syntax error";
       lua_settop(mState, top);
@@ -423,8 +428,45 @@ return function() return newEnv(modules) end, stfuncView
   }
 
   int CLuaEngine::traceback(lua_State *paState) {
-    const char *message = lua_tostring(paState, 1);
-    luaL_traceback(paState, paState, (message != nullptr) ? message : "error object is not a string", 1);
+    // the traceback of Lua 5.1's debug library, whose C API has no luaL_traceback
+    constexpr int cFirstLevels = 12;
+    constexpr int cLastLevels = 10;
+    lua_settop(paState, 1);
+    if (lua_tostring(paState, 1) == nullptr) {
+      lua_pushliteral(paState, "error object is not a string");
+      lua_replace(paState, 1);
+    }
+    lua_pushliteral(paState, "\nstack traceback:");
+    lua_Debug record;
+    bool firstPart = true;
+    for (int level = 1; lua_getstack(paState, level, &record) != 0; ++level) {
+      if (level >= cFirstLevels && firstPart) {
+        firstPart = false;
+        if (lua_getstack(paState, level + cLastLevels + 1, &record) != 0) {
+          lua_pushliteral(paState, "\n\t...");
+          while (lua_getstack(paState, level + cLastLevels + 1, &record) != 0) {
+            ++level;
+          }
+          continue;
+        }
+      }
+      lua_getinfo(paState, "Snl", &record);
+      lua_pushfstring(paState, "\n\t%s:", record.short_src);
+      if (record.currentline > 0) {
+        lua_pushfstring(paState, "%d:", record.currentline);
+      }
+      if (*record.namewhat != '\0') {
+        lua_pushfstring(paState, " in function '%s'", record.name);
+      } else if (*record.what == 'm') {
+        lua_pushliteral(paState, " in main chunk");
+      } else if (*record.what == 'C' || *record.what == 't') {
+        lua_pushliteral(paState, " ?");
+      } else {
+        lua_pushfstring(paState, " in function <%s:%d>", record.short_src, record.linedefined);
+      }
+      lua_concat(paState, lua_gettop(paState));
+    }
+    lua_concat(paState, lua_gettop(paState));
     return 1;
   }
 

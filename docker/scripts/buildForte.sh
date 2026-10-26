@@ -98,9 +98,9 @@ function compile(){
   fi
 
   if [ "${LUA_ENABLED}" -eq "1" ]; then
-    # FORTE finds LuaJIT through pkg-config
+    # FORTE finds Lua 5.1 through pkg-config, it links the static library
     export PKG_CONFIG_PATH="${CURRENT_LUA_LIBS}pkgconfig"
-    LUA_FLAGS="-DFORTE_USE_LUATYPES=LuaJIT"
+    LUA_FLAGS="-DFORTE_USE_LUATYPES=Lua51"
   else
     LUA_FLAGS="" 
   fi
@@ -117,10 +117,6 @@ function compile(){
 
   mkdir -p "${CURRENT_OUTPUT}"
   cp src/forte "${CURRENT_OUTPUT}"
-
-  if [ "${LUA_ENABLED}" -eq "1" ]; then
-    cp "${CURRENT_LUA_LIBS}"*.so* "${CURRENT_OUTPUT}"
-  fi
 }
 
 

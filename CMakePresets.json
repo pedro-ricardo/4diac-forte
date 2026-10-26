@@ -251,7 +251,7 @@
       "cacheVariables": {
         "FORTE_USE_LUATYPES": {
           "type": "STRING",
-          "value": "LuaJIT"
+          "value": "Lua51"
         }
       }
     },
@@ -265,7 +265,7 @@
       "cacheVariables": {
         "FORTE_USE_LUATYPES": {
           "type": "STRING",
-          "value": "LuaJIT"
+          "value": "Lua51"
         }
       }
     },

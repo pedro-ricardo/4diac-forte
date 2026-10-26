@@ -8,7 +8,7 @@
 #
 # Contributors:
 #   Monika Wenger - initial API and implementation and/or initial documentation
-#   Pedro Ricardo C. Souza - LuaJIT through pkg-config, embedded STfunc source
+#   Pedro Ricardo C. Souza - Lua 5.1 through pkg-config or a given target, embedded STfunc source
 # *******************************************************************************/
 # ############################################################################
 # core/lua
@@ -18,12 +18,21 @@ if (NOT FORTE_DYNAMIC_TYPE_LOAD)
     return()
 endif ()
 
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(LUAJIT REQUIRED IMPORTED_TARGET GLOBAL luajit>=2.1)
+# Lua 5.1 must be built as C: Lua errors unwind with longjmp, which the Lua sources are written for.
+set(FORTE_LUA_TARGET "" CACHE STRING "CMake target providing Lua 5.1 (leave empty to find it through pkg-config)")
+mark_as_advanced(FORTE_LUA_TARGET)
+add_library(forte-lua-library INTERFACE IMPORTED GLOBAL)
+if (FORTE_LUA_TARGET)
+    target_link_libraries(forte-lua-library INTERFACE ${FORTE_LUA_TARGET})
+else ()
+    find_package(PkgConfig REQUIRED)
+    pkg_search_module(LUA51 REQUIRED IMPORTED_TARGET GLOBAL lua5.1 lua-5.1 lua51)
+    target_link_libraries(forte-lua-library INTERFACE PkgConfig::LUA51)
+endif ()
 
 set(FORTE_LUA_INSTRUCTION_LIMIT
         "0"
-        CACHE STRING "Lua VM instructions allowed per call into a Lua type, 0 for no limit (a limit turns the JIT compiler off)"
+        CACHE STRING "Lua VM instructions allowed per call into a Lua type, 0 for no limit"
 )
 mark_as_advanced(FORTE_LUA_INSTRUCTION_LIMIT)
 
@@ -44,6 +53,7 @@ add_dependencies(forte-core forte-lua-stfunc)
 set(FORTE_LUA_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/luaadapter.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/luabfb.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/luabit.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/luacfb.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/luaengine.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/luainterface.cpp
@@ -53,6 +63,7 @@ set(FORTE_LUA_SOURCES
 target_sources(forte-core PRIVATE
         luaadapter.h
         luabfb.h
+        luabit.h
         luacfb.h
         luaengine.h
         luainterface.h
@@ -61,16 +72,14 @@ target_sources(forte-core PRIVATE
         ${FORTE_LUA_SOURCES}
 )
 
-# The Lua sources raise Lua errors through C++ frames, which needs unwind tables even with exceptions off.
-# They include a generated header, so they are kept out of the C++ module scan.
+# The Lua sources include a generated header, so they are kept out of the C++ module scan.
 set_source_files_properties(${FORTE_LUA_SOURCES} TARGET_DIRECTORY forte-core PROPERTIES
         CXX_SCAN_FOR_MODULES OFF
-        COMPILE_OPTIONS "$<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-funwind-tables>"
 )
 set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/luaengine.cpp TARGET_DIRECTORY forte-core PROPERTIES
         COMPILE_DEFINITIONS "FORTE_LUA_INSTRUCTION_LIMIT=${FORTE_LUA_INSTRUCTION_LIMIT}"
 )
 
 target_include_directories(forte-core PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
-target_link_libraries(forte-core PRIVATE PkgConfig::LUAJIT)
+target_link_libraries(forte-core PRIVATE forte-lua-library)
 target_compile_definitions(forte-core PUBLIC FORTE_DYNAMIC_TYPE_LOAD)
