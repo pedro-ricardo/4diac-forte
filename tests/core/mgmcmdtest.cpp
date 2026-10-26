@@ -9,7 +9,7 @@
  *
  * Contributors:
  *    Martin Erich Jobst - initial implementation
- *    Pedro Ricardo C. Souza - deleting a resource right after its start
+ *    Pedro Ricardo C. Souza - deleting and destroying a resource right after its start
  *******************************************************************************/
 
 #include <boost/test/unit_test.hpp>
@@ -300,6 +300,17 @@ namespace forte::test {
                  EMGMResponse::Ready);
       BOOST_REQUIRE(executeMGMCommand(device, {.mCMD = EMGMCommandType::DeleteFBInstance,
                                                .mFirstParam = {resourceName}}) == EMGMResponse::Ready);
+    }
+  }
+
+  BOOST_AUTO_TEST_CASE(destroyResourceRightAfterStart) {
+    // the event chain thread may still deliver the start event to the internal E_RESTART while the resource is
+    // destroyed; the window is narrow, so it takes many rounds to hit it
+    for (int i = 0; i < 3000; ++i) {
+      CInternalFB<iec61499::system::EMB_RES> resource("MGMCommandTest_startDestroy"_STRID,
+                                                      CFBTestDataGlobalFixture::getDevice());
+      BOOST_REQUIRE(resource->initialize());
+      BOOST_TEST(resource->changeExecutionState(EMGMCommandType::Start) == EMGMResponse::Ready);
     }
   }
 
