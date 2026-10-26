@@ -25,6 +25,7 @@
 #include "forte/datatypes/forte_bool.h"
 #include "forte/datatypes/forte_int.h"
 #include "forte/datatypes/forte_uint.h"
+#include "forte/inoutdataconn.h"
 
 #include "forte_boost_output_support.h"
 #include "../fbtests/fbtestfixture.h"
@@ -271,6 +272,51 @@ return {
 }
 )lua";
 
+    // REQ adds 1 to the in-out V, which is read with REQ and written back with CNF
+    constexpr char cInOutInc[] = R"lua(
+local DIO_V = 100663296
+return {
+  ECC = function(fb, id)
+    if id == 0 then
+      fb[DIO_V] = fb[DIO_V] + 1
+      fb(0)
+    end
+  end,
+  interfaceSpec = {
+    numEIs = 1, EINames = {"REQ"}, EIWith = {0, 65535}, EIWithIndexes = {0},
+    numEOs = 1, EONames = {"CNF"}, EOWith = {0, 65535}, EOWithIndexes = {0},
+    numDIs = 0, DINames = {}, DIDataTypeNames = {},
+    numDOs = 0, DONames = {}, DODataTypeNames = {},
+    numDIOs = 1, DIONames = {"V"}, DIODataTypeNames = {"INT"}, DIOInitialValues = {"10"},
+    numAdapters = 0, adapterInstanceDefinition = {}
+  }
+}
+)lua";
+
+    // the in-out V is passed to the in-out of the internal InOutInc, read with REQ and written back with CNF
+    constexpr char cInOutWrap[] = R"lua(
+return {
+  interfaceSpec = {
+    numEIs = 1, EINames = {"REQ"}, EIWith = {0, 65535}, EIWithIndexes = {0},
+    numEOs = 1, EONames = {"CNF"}, EOWith = {0, 65535}, EOWithIndexes = {0},
+    numDIs = 0, DINames = {}, DIDataTypeNames = {},
+    numDOs = 0, DONames = {}, DODataTypeNames = {},
+    numDIOs = 1, DIONames = {"V"}, DIODataTypeNames = {"INT"}, DIOInitialValues = {"3"},
+    numAdapters = 0, adapterInstanceDefinition = {}
+  },
+  fbnSpec = {
+    internalFBs = {{fbNameID = "INC", fbTypeID = "luacfbtest::InOutInc"}}, parameters = {},
+    eventConnections = {
+      {srcID = "REQ", srcFBNum = -1, dstID = "REQ", dstFBNum = 0},
+      {srcID = "CNF", srcFBNum = 0, dstID = "CNF", dstFBNum = -1}
+    },
+    dataConnections = {{srcID = "V", srcFBNum = -1, dstID = "V", dstFBNum = 0}},
+    adapterConnections = {},
+    numFBs = 1, numECons = 2, numDCons = 1, numAdpCons = 0, numParams = 0
+  }
+}
+)lua";
+
     const std::string cEmptyInterface =
         "interfaceSpec = {numEIs = 1, EINames = {\"EI\"}, EIWith = {0, 65535}, EIWithIndexes = {0}, "
         "numEOs = 1, EONames = {\"EO\"}, EOWith = {}, EOWithIndexes = {-1}, numDIs = 1, DINames = {\"DI\"}, "
@@ -330,6 +376,11 @@ return {
     void registerCounterTypes() {
       registerBFB("luacfbtest::Counter"_STRID, cCounter);
       registerCFB("luacfbtest::CounterPair"_STRID, cCounterPair);
+    }
+
+    void registerInOutTypes() {
+      registerBFB("luacfbtest::InOutInc"_STRID, cInOutInc);
+      registerCFB("luacfbtest::InOutWrap"_STRID, cInOutWrap);
     }
 
     void triggerAndWait(CFunctionBlock &paFB, TEventID paEvent) {
@@ -544,6 +595,78 @@ return {
                EMGMResponse::Ready);
   }
 
+  BOOST_AUTO_TEST_CASE(inOutVariables) {
+    registerInOutTypes();
+    SInstance wrap("Wrap"_STRID, "luacfbtest::InOutWrap"_STRID);
+    BOOST_TEST(wrap->getFBInterfaceSpec().getNumDIOs() == 1U);
+    BOOST_TEST(intValue(wrap->getDIO(0)) == 3);
+    BOOST_TEST(wrap->getDIO(1) == nullptr);
+    CIEC_ANY *const innerV = wrap->getVar(std::array{"INC"_STRID, "V"_STRID});
+    BOOST_REQUIRE(innerV != nullptr);
+    BOOST_TEST(intValue(innerV) == 10);
+
+    // unconnected, the internal FB works on the composite's own value
+    triggerAndWait(*wrap.mFB, 0);
+    BOOST_TEST(intValue(wrap->getDIO(0)) == 4);
+    BOOST_TEST(intValue(wrap->getDataInOut("V"_STRID)) == 4);
+    BOOST_TEST(intValue(innerV) == 4);
+    triggerAndWait(*wrap.mFB, 0);
+    BOOST_TEST(intValue(wrap->getDIO(0)) == 5);
+  }
+
+  BOOST_AUTO_TEST_CASE(inOutChain) {
+    registerInOutTypes();
+    SInstance source("Source"_STRID, "luacfbtest::InOutInc"_STRID);
+    SInstance first("First"_STRID, "luacfbtest::InOutWrap"_STRID);
+    SInstance second("Second"_STRID, "luacfbtest::InOutWrap"_STRID);
+    CInOutDataConnection *const sourceOut = source->getDIOOutConnection("V"_STRID);
+    CInOutDataConnection *const firstOut = first->getDIOOutConnection("V"_STRID);
+    BOOST_REQUIRE(sourceOut != nullptr);
+    BOOST_REQUIRE(firstOut != nullptr);
+
+    // Source.V -> First.V -> Second.V, the second link made first so the first one has to pass its value on
+    BOOST_REQUIRE(firstOut->connect(*second.mFB, std::array{"V"_STRID}) == EMGMResponse::Ready);
+    BOOST_REQUIRE(sourceOut->connect(*first.mFB, std::array{"V"_STRID}) == EMGMResponse::Ready);
+    BOOST_TEST(first->getDIOInConnection("V"_STRID) == sourceOut);
+    BOOST_TEST(second->getDIOInConnection("V"_STRID) == firstOut);
+
+    // each composite takes the source's value with REQ and writes the result back with CNF
+    triggerAndWait(*second.mFB, 0);
+    BOOST_TEST(intValue(second->getDIO(0)) == 11);
+    BOOST_TEST(intValue(source->getDIO(0)) == 11);
+    BOOST_TEST(intValue(first->getDIO(0)) == 3);
+    triggerAndWait(*first.mFB, 0);
+    BOOST_TEST(intValue(first->getDIO(0)) == 12);
+    BOOST_TEST(intValue(source->getDIO(0)) == 12);
+    triggerAndWait(*source.mFB, 0);
+    BOOST_TEST(intValue(source->getDIO(0)) == 13);
+    triggerAndWait(*second.mFB, 0);
+    BOOST_TEST(intValue(second->getDIO(0)) == 14);
+    BOOST_TEST(intValue(source->getDIO(0)) == 14);
+    BOOST_TEST(intValue(first->getDIO(0)) == 12);
+
+    BOOST_TEST(sourceOut->disconnect(*first.mFB, std::array{"V"_STRID}) == EMGMResponse::Ready);
+    BOOST_TEST(firstOut->disconnect(*second.mFB, std::array{"V"_STRID}) == EMGMResponse::Ready);
+    BOOST_TEST(first->getDIOInConnection("V"_STRID) == nullptr);
+  }
+
+  BOOST_AUTO_TEST_CASE(inOutReset) {
+    registerInOutTypes();
+    SInstance wrap("ResetWrap"_STRID, "luacfbtest::InOutWrap"_STRID);
+    triggerAndWait(*wrap.mFB, 0);
+    triggerAndWait(*wrap.mFB, 0);
+    BOOST_TEST(intValue(wrap->getDIO(0)) == 5);
+
+    BOOST_TEST(wrap->changeExecutionState(EMGMCommandType::Stop) == EMGMResponse::Ready);
+    BOOST_TEST(wrap->changeExecutionState(EMGMCommandType::Reset) == EMGMResponse::Ready);
+    BOOST_TEST(intValue(wrap->getDIO(0)) == 3);
+    BOOST_TEST(intValue(wrap->getVar(std::array{"INC"_STRID, "V"_STRID})) == 10);
+    BOOST_TEST(wrap->changeExecutionState(EMGMCommandType::Start) == EMGMResponse::Ready);
+
+    triggerAndWait(*wrap.mFB, 0);
+    BOOST_TEST(intValue(wrap->getDIO(0)) == 4);
+  }
+
   BOOST_AUTO_TEST_CASE(createErrors) {
     registerCounterAdapter();
     const std::string conn = "{srcID = \"EI\", srcFBNum = -1, dstID = \"REQ\", dstFBNum = 0}";
@@ -551,12 +674,23 @@ return {
     BOOST_TEST(createResponse(network(conn, 1).substr(0, 40)) == EMGMResponse::InvalidObject);
     BOOST_TEST(createResponse("return {" + cEmptyInterface + "}") == EMGMResponse::BadParams);
     BOOST_TEST(createResponse("return {" + cEmptyInterface + ", fbnSpec = 1}") == EMGMResponse::BadParams);
-    // in-out variables are for basic FBs only
-    std::string withInOut = network(conn, 1);
-    const std::size_t numAdapters = withInOut.find("numAdapters");
-    BOOST_REQUIRE(numAdapters != std::string::npos);
-    withInOut.insert(numAdapters, "numDIOs = 1, DIONames = {\"V\"}, DIODataTypeNames = {\"INT\"}, ");
-    BOOST_TEST(createResponse(withInOut) == EMGMResponse::BadParams);
+    // in-out variables: a data source of the network only, that never drives an output of the composite
+    const auto withInOut = [](std::string paModule) {
+      const std::size_t numAdapters = paModule.find("numAdapters");
+      BOOST_REQUIRE(numAdapters != std::string::npos);
+      paModule.insert(numAdapters, "numDIOs = 1, DIONames = {\"V\"}, DIODataTypeNames = {\"INT\"}, ");
+      return paModule;
+    };
+    BOOST_TEST(createResponse(withInOut(network(conn, 1))) == EMGMResponse::Ready);
+    BOOST_TEST(createResponse(withInOut(network(conn, 1, "{srcID = \"V\", srcFBNum = -1, dstID = \"PV\", dstFBNum = 0}",
+                                                1))) == EMGMResponse::Ready);
+    BOOST_TEST(createResponse(
+                   withInOut(network(conn, 1, "{srcID = \"V\", srcFBNum = -1, dstID = \"DO\", dstFBNum = -1}", 1))) ==
+               EMGMResponse::BadParams);
+    BOOST_TEST(createResponse(withInOut(network(conn, 1, "{srcID = \"CV\", srcFBNum = 0, dstID = \"V\", dstFBNum = -1}",
+                                                1))) == EMGMResponse::BadParams);
+    BOOST_TEST(createResponse(network(conn, 1, "{srcID = \"V\", srcFBNum = -1, dstID = \"PV\", dstFBNum = 0}", 1)) ==
+               EMGMResponse::BadParams);
     // counts
     BOOST_TEST(createResponse(network(conn, 2)) == EMGMResponse::BadParams);
     BOOST_TEST(createResponse(network(conn, 0)) == EMGMResponse::BadParams);
