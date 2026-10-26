@@ -153,6 +153,34 @@ namespace forte::lua::test {
     BOOST_TEST(lua_gettop(engine.getState()) == 0);
   }
 
+  BOOST_AUTO_TEST_CASE(deepTracebackIsShortened) {
+    CLuaEngine engine;
+    std::string error;
+    BOOST_TEST(!engine.loadModule("local function f(n)\n"
+                                  "  if n == 0 then error('deep') end\n"
+                                  "  return 1 + f(n - 1)\n"
+                                  "end\n"
+                                  "f(40)\n"
+                                  "return {}",
+                                  "Deep", error));
+    BOOST_TEST(error.rfind("Deep:2: deep\nstack traceback:\n\t[C]: in function 'error'\n", 0) == 0, error);
+    BOOST_TEST(error.find("\n\t...\n") != std::string::npos, error);
+    std::size_t lines = 0;
+    for (std::size_t pos = error.find("\n\t"); pos != std::string::npos; pos = error.find("\n\t", pos + 1)) {
+      ++lines;
+    }
+    // the first 11 levels, the ellipsis and the last 10 levels
+    BOOST_TEST(lines == 22U, error);
+    BOOST_TEST(lua_gettop(engine.getState()) == 0);
+  }
+
+  BOOST_AUTO_TEST_CASE(nonStringErrorHasTraceback) {
+    CLuaEngine engine;
+    std::string error;
+    BOOST_TEST(!engine.loadModule("error({})\nreturn {}", "Table", error));
+    BOOST_TEST(error.rfind("error object is not a string\nstack traceback:", 0) == 0, error);
+  }
+
   BOOST_AUTO_TEST_CASE(binaryChunkRejected) {
     CLuaEngine engine;
     std::string error;
@@ -162,7 +190,7 @@ namespace forte::lua::test {
     BOOST_REQUIRE(lua_dump(state, writeChunk, &bytecode) == 0);
     lua_settop(state, 0);
     BOOST_TEST(!engine.loadModule(bytecode, "Binary", error));
-    BOOST_TEST(error.find("wrong mode") != std::string::npos);
+    BOOST_TEST(error.find("binary chunk") != std::string::npos);
   }
 
   BOOST_AUTO_TEST_CASE(sandboxHidesUnsafeLibraries) {
@@ -321,7 +349,7 @@ namespace forte::lua::test {
     BOOST_TEST(CLuaEngine::getValue(state, -1, ulintValue) == nullptr);
     BOOST_TEST(static_cast<TForteUInt64>(ulintValue) == 18446744073709549568ULL);
     CIEC_DWORD dwordValue;
-    lua_pushnumber(state, -2147483648.0); // a signed result of LuaJIT's bit library
+    lua_pushnumber(state, -2147483648.0); // a signed result of the bit library
     BOOST_TEST(CLuaEngine::getValue(state, -1, dwordValue) == nullptr);
     BOOST_TEST(static_cast<TForteDWord>(dwordValue) == 0x80000000U);
     lua_settop(state, 0);

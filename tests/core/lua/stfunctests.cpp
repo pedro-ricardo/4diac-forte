@@ -145,6 +145,20 @@ check(STfunc.NOT8(1), 254)
 )lua");
   }
 
+  BOOST_AUTO_TEST_CASE(bitFunctionsKeepHighWords) {
+    runChecks(R"lua(
+check(STfunc.SHL64(2 ^ 32 + 1, 4), 2 ^ 36 + 16)
+check(STfunc.SHL64(3, 31), 2 ^ 32 + 2 ^ 31)
+check(STfunc.SHR64(2 ^ 40 + 256, 8), 2 ^ 32 + 1)
+check(STfunc.SHR64(2 ^ 52, 33), 2 ^ 19)
+check(STfunc.ROL64(2 ^ 32, 4), 2 ^ 36)
+check(STfunc.ROR64(2 ^ 36, 4), 2 ^ 32)
+check(STfunc.AND64(2 ^ 40 + 255, 2 ^ 40 + 15), 2 ^ 40 + 15)
+check(STfunc.OR64(2 ^ 33, 1), 2 ^ 33 + 1)
+check(STfunc.XOR64(2 ^ 33 + 1, 1), 2 ^ 33)
+)lua");
+  }
+
   BOOST_AUTO_TEST_CASE(numericFunctions) {
     runChecks(R"lua(
 check(STfunc.MOD(7, 3), 1)
