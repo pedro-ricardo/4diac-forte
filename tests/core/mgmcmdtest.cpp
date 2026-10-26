@@ -9,6 +9,7 @@
  *
  * Contributors:
  *    Martin Erich Jobst - initial implementation
+ *    Pedro Ricardo C. Souza - deleting a resource right after its start
  *******************************************************************************/
 
 #include <boost/test/unit_test.hpp>
@@ -281,6 +282,25 @@ namespace forte::test {
     BOOST_TEST(queryCommand.mAdditionalParams == "<Connection Source=\"F_MOVE_1.OUT\" Destination=\"F_MOVE_2.IN\"/>\n");
 
     resource->deinitialize();
+  }
+
+  BOOST_AUTO_TEST_CASE(deleteResourceRightAfterStart) {
+    CDevice &device = CFBTestDataGlobalFixture::getDevice();
+    const StringId resourceName = "MGMCommandTest_startKillDelete"_STRID;
+    // the event chain thread may not even run yet when KILL and DELETE arrive
+    for (int i = 0; i < 50; ++i) {
+      BOOST_REQUIRE(executeMGMCommand(device, {
+                                                  .mCMD = EMGMCommandType::CreateFBInstance,
+                                                  .mFirstParam = {resourceName},
+                                                  .mSecondParam = {"iec61499::system::EMB_RES"_STRID},
+                                              }) == EMGMResponse::Ready);
+      BOOST_TEST(executeMGMCommand(device, {.mCMD = EMGMCommandType::Start, .mDestination = resourceName}) ==
+                 EMGMResponse::Ready);
+      BOOST_TEST(executeMGMCommand(device, {.mCMD = EMGMCommandType::Kill, .mFirstParam = {resourceName}}) ==
+                 EMGMResponse::Ready);
+      BOOST_REQUIRE(executeMGMCommand(device, {.mCMD = EMGMCommandType::DeleteFBInstance,
+                                               .mFirstParam = {resourceName}}) == EMGMResponse::Ready);
+    }
   }
 
   BOOST_AUTO_TEST_SUITE_END()
