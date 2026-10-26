@@ -209,6 +209,43 @@ return {
                EMGMResponse::BadParams);
   }
 
+  BOOST_AUTO_TEST_CASE(runawayAndHostileModules) {
+    CManagedResource resource("LuaMGMTest_hostile"_STRID);
+    const auto create = [&resource](std::string_view paElement, std::string_view paName, std::string_view paSource) {
+      return resource.execute(createRequest(paElement, paName, paSource));
+    };
+
+    // the instruction budget of CREATE stops modules that do not finish, even when they catch errors
+    BOOST_TEST(create("FBType", "luamgmtest::Endless", "while true do end") == EMGMResponse::InvalidObject);
+    BOOST_TEST(create("FBType", "luamgmtest::Swallow", "while true do pcall(function() while true do end end) end") ==
+               EMGMResponse::InvalidObject);
+    BOOST_TEST(create("AdapterType", "luamgmtest::EndlessAdapter", "while true do end") == EMGMResponse::InvalidObject);
+    BOOST_TEST(create("FBType", "luamgmtest::Recursion", "local function f() return f() + 1 end return f()") ==
+               EMGMResponse::InvalidObject);
+
+    // the tables of a module are read raw, metamethods never run
+    BOOST_TEST(
+        create("FBType", "luamgmtest::Trap", "return setmetatable({}, {__index = function() while true do end end})") ==
+        EMGMResponse::BadParams);
+    std::string trappedInterface = basicFB("INT");
+    trappedInterface.replace(trappedInterface.find("interfaceSpec = {"), 17,
+                             "interfaceSpec = setmetatable({}, {__index = function() error('trap') end}), x = {");
+    BOOST_TEST(create("FBType", "luamgmtest::TrappedInterface", trappedInterface) == EMGMResponse::BadParams);
+    BOOST_TEST(create("FBType", "luamgmtest::TrappedNetwork",
+                      "return {fbnSpec = setmetatable({}, {__index = function() error('trap') end}), " +
+                          basicFB("INT").substr(basicFB("INT").find("interfaceSpec"))) == EMGMResponse::BadParams);
+
+    // nothing of the refused modules was registered
+    std::string responseText;
+    BOOST_TEST(resource.execute(R"(<Request ID="4" Action="QUERY"><FBType Name="*" /></Request>)", responseText) ==
+               EMGMResponse::Ready);
+    BOOST_TEST(responseText.find("luamgmtest::Endless") == std::string::npos);
+    BOOST_TEST(responseText.find("luamgmtest::Trap") == std::string::npos);
+
+    // a module that loops in its ECC only is created, the budget applies to the module's top level
+    BOOST_TEST(create("FBType", "luamgmtest::LoopsInECC", basicFB("INT", "while true do end")) == EMGMResponse::Ready);
+  }
+
   BOOST_AUTO_TEST_SUITE_END()
 
 } // namespace forte::lua::test
