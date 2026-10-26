@@ -54,6 +54,10 @@ namespace forte::lua {
     lua_rawget(state, module);
     EMGMResponse response = entry->mInterface.parse(state, -1, true, paError);
     lua_pop(state, 1);
+    if (response == EMGMResponse::Ready && !entry->mInterface.getDIOTypes().empty()) {
+      paError = "in-out variables are only supported in basic FB types";
+      response = EMGMResponse::BadParams;
+    }
 
     if (response == EMGMResponse::Ready) {
       lua_pushliteral(state, "fbnSpec");

@@ -43,8 +43,12 @@ namespace forte::lua {
     lua_State *const state = engine.getState();
     lua_pushliteral(state, "interfaceSpec");
     lua_rawget(state, -2);
-    const EMGMResponse response = entry->mInterface.parse(state, -1, false, paError);
+    EMGMResponse response = entry->mInterface.parse(state, -1, false, paError);
     lua_pop(state, 2);
+    if (response == EMGMResponse::Ready && !entry->mInterface.getDIOTypes().empty()) {
+      paError = "adapter types have no in-out variables";
+      response = EMGMResponse::BadParams;
+    }
     if (response == EMGMResponse::Ready) {
       paEntry = std::move(entry);
     }

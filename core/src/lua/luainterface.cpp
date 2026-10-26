@@ -425,10 +425,18 @@ namespace forte::lua {
                            mDONames, mDOTypes, paError);
     }
     if (response == EMGMResponse::Ready) {
-      response = parseWith(paState, table, "EI", mDINames.size(), mEIWith, paError);
+      const bool hasInOuts = pushField(paState, table, "numDIOs") != LUA_TNIL;
+      lua_pop(paState, 1);
+      if (hasInOuts) {
+        response = parseData(paState, table, "numDIOs", "DIONames", "DIODataTypeNames", "DIOInitialValues",
+                             scmMaxDataPoints, mDIONames, mDIOTypes, paError);
+      }
     }
     if (response == EMGMResponse::Ready) {
-      response = parseWith(paState, table, "EO", mDONames.size(), mEOWith, paError);
+      response = parseWith(paState, table, "EI", mDINames.size() + mDIONames.size(), mEIWith, paError);
+    }
+    if (response == EMGMResponse::Ready) {
+      response = parseWith(paState, table, "EO", mDONames.size() + mDIONames.size(), mEOWith, paError);
     }
     if (response == EMGMResponse::Ready && paWithAdapters) {
       response = parseAdapters(paState, table, paError);
@@ -439,6 +447,7 @@ namespace forte::lua {
 
     std::vector<StringId> variables = mDINames;
     append(variables, mDONames);
+    append(variables, mDIONames);
     append(variables, mPlugNames);
     append(variables, mSocketNames);
     if (hasDuplicates(mEINames) || hasDuplicates(mEONames) || hasDuplicates(variables)) {
@@ -463,6 +472,7 @@ namespace forte::lua {
 
     std::vector<StringId> variables = mDINames;
     append(variables, mDONames);
+    append(variables, mDIONames);
     append(variables, mPlugNames);
     append(variables, mSocketNames);
     append(variables, mInternalNames);
@@ -631,7 +641,7 @@ namespace forte::lua {
         .mEOTypeNames = {},
         .mDINames = mDINames,
         .mDONames = mDONames,
-        .mDIONames = {},
+        .mDIONames = mDIONames,
         .mSocketNames = mSocketNames,
         .mPlugNames = mPlugNames,
     };

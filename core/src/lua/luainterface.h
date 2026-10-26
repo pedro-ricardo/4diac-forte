@@ -79,6 +79,8 @@ namespace forte::lua {
        *
        * The optional lists DIInitialValues and DOInitialValues hold one IEC 61131-3 literal per data point, an
        * empty string for the default of its type. Each literal must parse completely as the declared type.
+       * In-out variables are optional: numDIOs, DIONames, DIODataTypeNames and DIOInitialValues. In EIWith an index
+       * from numDIs on names in-out variable index - numDIs, in EOWith one from numDOs on in-out index - numDOs.
        *
        * @param paWithAdapters whether numAdapters and adapterInstanceDefinition are read (FB types)
        * @param paError receives a description of the problem
@@ -114,6 +116,10 @@ namespace forte::lua {
 
       [[nodiscard]] std::span<const SLuaDataType> getDOTypes() const {
         return mDOTypes;
+      }
+
+      [[nodiscard]] std::span<const SLuaDataType> getDIOTypes() const {
+        return mDIOTypes;
       }
 
       [[nodiscard]] std::span<const StringId> getInternalNames() const {
@@ -169,6 +175,7 @@ namespace forte::lua {
       std::vector<StringId> mEONames;
       std::vector<StringId> mDINames;
       std::vector<StringId> mDONames;
+      std::vector<StringId> mDIONames;
       std::vector<StringId> mPlugNames;
       std::vector<StringId> mSocketNames;
       std::vector<StringId> mInternalNames;
@@ -176,6 +183,7 @@ namespace forte::lua {
       std::vector<std::vector<TPortId>> mEOWith;
       std::vector<SLuaDataType> mDITypes;
       std::vector<SLuaDataType> mDOTypes;
+      std::vector<SLuaDataType> mDIOTypes;
       std::vector<SLuaDataType> mInternalTypes;
       std::vector<SLuaAdapterDefinition> mAdapters;
       SFBInterfaceSpec mSpec{};

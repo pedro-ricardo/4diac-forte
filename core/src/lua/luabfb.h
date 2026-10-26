@@ -24,6 +24,7 @@
 #include "forte/basicfb.h"
 #include "forte/dataconn.h"
 #include "forte/eventconn.h"
+#include "forte/inoutdataconn.h"
 #include "luainterface.h"
 #include "../anyadapter.h"
 #include "../typelib_internal.h"
@@ -90,12 +91,15 @@ namespace forte::lua {
 
       CIEC_ANY *getDI(TPortId paDINum) override;
       CIEC_ANY *getDO(TPortId paDONum) override;
+      CIEC_ANY *getDIO(TPortId paDIONum) override;
 
       static constexpr TForteUInt32 scmStateKey = 0;
       static constexpr TForteUInt32 scmDIFlag = 1U << 25;
       static constexpr TForteUInt32 scmDOFlag = 1U << 26;
       static constexpr TForteUInt32 scmAdapterFlag = 1U << 27;
       static constexpr TForteUInt32 scmInternalFlag = 1U << 28;
+      //! In-out variables are both inputs and outputs
+      static constexpr TForteUInt32 scmDIOFlag = scmDIFlag | scmDOFlag;
 
     protected:
       void setInitialValues() override;
@@ -105,6 +109,8 @@ namespace forte::lua {
       CEventConnection *getEOConUnchecked(TPortId paEONum) override;
       CDataConnection *getDOConUnchecked(TPortId paDONum) override;
       CDataConnection **getDIConUnchecked(TPortId paDINum) override;
+      CInOutDataConnection **getDIOInConUnchecked(TPortId paDIONum) override;
+      CInOutDataConnection *getDIOOutConUnchecked(TPortId paDIONum) override;
       IPlugPin *getPlugPinUnchecked(TPortId paPlugNum) override;
       ISocketPin *getSocketPinUnchecked(TPortId paSocketNum) override;
 
@@ -129,8 +135,13 @@ namespace forte::lua {
       const std::shared_ptr<CLuaEngine> mEngine;
       std::vector<std::unique_ptr<CIEC_ANY>> mDIs;
       std::vector<std::unique_ptr<CIEC_ANY>> mDOs;
+      std::vector<std::unique_ptr<CIEC_ANY>> mDIOs;
       std::vector<std::unique_ptr<CIEC_ANY>> mInternals;
       std::vector<CDataConnection *> mDIConns;
+      //! The connection each in-out variable gets its value from, nullptr while it has none
+      std::vector<CInOutDataConnection *> mDIOInConns;
+      //! The in-out connections onwards, each refers to the value of its input connection or else to the variable
+      std::vector<std::unique_ptr<CInOutDataConnection>> mDIOOutConns;
       std::vector<CEventConnection> mEOConns;
       std::vector<CGenDataConnection> mDOConns;
       std::vector<std::unique_ptr<CTypedPlugPin>> mPlugs;

@@ -120,8 +120,10 @@ namespace forte::lua {
       mEngine(std::move(paEngine)),
       mDIs(CLuaInterface::createValues(mTypeEntry->getInterface().getDITypes())),
       mDOs(CLuaInterface::createValues(mTypeEntry->getInterface().getDOTypes())),
+      mDIOs(CLuaInterface::createValues(mTypeEntry->getInterface().getDIOTypes())),
       mInternals(CLuaInterface::createValues(mTypeEntry->getInterface().getInternalTypes())),
       mDIConns(mDIs.size(), nullptr),
+      mDIOInConns(mDIOs.size(), nullptr),
       mECCRef(LUA_NOREF),
       mHandleRef(LUA_NOREF) {
     const SFBInterfaceSpec &spec = getFBInterfaceSpec();
@@ -132,6 +134,10 @@ namespace forte::lua {
     mDOConns.reserve(mDOs.size());
     for (TPortId i = 0; i < mDOs.size(); ++i) {
       mDOConns.emplace_back(*this, i, *mDOs[i]);
+    }
+    mDIOOutConns.reserve(mDIOs.size());
+    for (TPortId i = 0; i < mDIOs.size(); ++i) {
+      mDIOOutConns.push_back(std::make_unique<CInOutDataConnection>(*this, i, mDIOs[i].get()));
     }
     // the list ID of an adapter is its Lua adapter ID, so incoming adapter events map directly to the Lua IDs
     const auto adapters = mTypeEntry->getInterface().getAdapters();
@@ -209,11 +215,16 @@ namespace forte::lua {
     return (paDONum < mDOs.size()) ? mDOs[paDONum].get() : nullptr;
   }
 
+  CIEC_ANY *CLuaBFB::getDIO(TPortId paDIONum) {
+    return (paDIONum < mDIOs.size()) ? mDIOs[paDIONum].get() : nullptr;
+  }
+
   void CLuaBFB::setInitialValues() {
     CBasicFB::setInitialValues();
     const CLuaInterface &interface = mTypeEntry->getInterface();
     CLuaInterface::setInitialValues(interface.getDITypes(), mDIs);
     CLuaInterface::setInitialValues(interface.getDOTypes(), mDOs);
+    CLuaInterface::setInitialValues(interface.getDIOTypes(), mDIOs);
     CLuaInterface::setInitialValues(interface.getInternalTypes(), mInternals);
   }
 
@@ -231,6 +242,14 @@ namespace forte::lua {
 
   CDataConnection **CLuaBFB::getDIConUnchecked(TPortId paDINum) {
     return &mDIConns[paDINum];
+  }
+
+  CInOutDataConnection **CLuaBFB::getDIOInConUnchecked(TPortId paDIONum) {
+    return &mDIOInConns[paDIONum];
+  }
+
+  CInOutDataConnection *CLuaBFB::getDIOOutConUnchecked(TPortId paDIONum) {
+    return mDIOOutConns[paDIONum].get();
   }
 
   IPlugPin *CLuaBFB::getPlugPinUnchecked(TPortId paPlugNum) {
@@ -274,15 +293,29 @@ namespace forte::lua {
   }
 
   void CLuaBFB::readInputData(TEventID paEIID) {
+    const std::size_t numDIs = mDIs.size();
     for (const TPortId di : mTypeEntry->getInterface().getEIWith(paEIID)) {
-      readData(di, *mDIs[di], mDIConns[di]);
+      if (di < numDIs) {
+        readData(di, *mDIs[di], mDIConns[di]);
+      } else {
+        // an in-out variable takes the value its input connection refers to
+        const std::size_t dio = di - numDIs;
+        readData(numDIs + mDOs.size() + dio, *mDIOs[dio], mDIOOutConns[dio].get());
+      }
     }
   }
 
   void CLuaBFB::writeOutputData(TEventID paEO) {
     const std::size_t numDIs = mDIs.size();
+    const std::size_t numDOs = mDOs.size();
     for (const TPortId dataOutput : mTypeEntry->getInterface().getEOWith(paEO)) {
-      writeData(numDIs + dataOutput, *mDOs[dataOutput], mDOConns[dataOutput]);
+      if (dataOutput < numDOs) {
+        writeData(numDIs + dataOutput, *mDOs[dataOutput], mDOConns[dataOutput]);
+      } else {
+        // an in-out variable writes back to the value its input connection refers to
+        const std::size_t dio = dataOutput - numDOs;
+        writeData(numDIs + numDOs + dio, *mDIOs[dio], *mDIOOutConns[dio]);
+      }
     }
   }
 
@@ -293,6 +326,7 @@ namespace forte::lua {
       case scmDIFlag: return (adapterID == 0) ? getDI(index) : nullptr;
       case scmDOFlag: return (adapterID == 0) ? getDO(index) : nullptr;
       case scmInternalFlag: return (adapterID == 0 && index < mInternals.size()) ? mInternals[index].get() : nullptr;
+      case scmDIOFlag: return (adapterID == 0) ? getDIO(index) : nullptr;
       case scmAdapterFlag | scmDIFlag:
         if (CAdapter *const adapter = getAdapterBlock(adapterID); adapter != nullptr) {
           return adapter->getDI(index);
