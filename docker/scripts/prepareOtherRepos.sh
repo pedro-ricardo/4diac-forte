@@ -36,7 +36,7 @@ source ${BASH_SCRIPT_PATH}/commonFunctions.sh "$@"
 #   - MBEDTLS_FOLDER_NAME: name of the folder containing the mbetdls repository. Default mbedtls
 #   - OPCUA_FOLDER_NAME: name of the folder containing the open62541 repository. Default open62541
 #   - MQTT_FOLDER_NAME: name of the folder containing the paho mqtt repository. Default paho.mqtt.c
-#   - LUA_FOLDER_NAME: name of the folder containing the luajit repository. Default luajit-2.0
+#   - LUA_FOLDER_NAME: name of the folder containing the luajit repository. Default luajit
 #   - LINUX32_ARCH: name for the build folder when compiling for linux32 architecture. Default linux32
 #   - ARM_ARCH: name for the build folder when compiling for arm architecture. Default arm
 #   - CLEAN_ALL: if set to 1, it will compile even if the libraries are found. Default 0
@@ -66,7 +66,7 @@ if [ -z "$MQTT_FOLDER_NAME" ]; then
 fi
 
 if [ -z "$LUA_FOLDER_NAME" ]; then
-  LUA_FOLDER_NAME=luajit-2.0
+  LUA_FOLDER_NAME=luajit
 fi
 
 if [ -z "$LINUX32_ARCH" ]; then
@@ -287,11 +287,12 @@ if [ "${LUA_ENABLED}" -eq "1" ]; then
       printMessage "Creating folder for lua repository"
       
       mkdir -p "${CURRENT_FOLDER}" && \
-        git clone http://luajit.org/git/luajit-2.0.git "${CURRENT_FOLDER}"
+        git clone https://github.com/LuaJIT/LuaJIT.git "${CURRENT_FOLDER}"
   fi
-      
+
+  # v2.1 is a rolling release branch, FORTE needs LuaJIT 2.1
   cd "${CURRENT_FOLDER}" && \
-  git checkout v2.0 
+  git checkout v2.1
 
 fi
 

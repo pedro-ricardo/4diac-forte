@@ -98,9 +98,9 @@ function compile(){
   fi
 
   if [ "${LUA_ENABLED}" -eq "1" ]; then
-    LUA_FLAGS="-DFORTE_USE_LUATYPES=LuaJIT \
-               -DLUAJIT_INCLUDE_DIR=${REPOS_DIR}${LUA_FOLDER_NAME}/src \
-               -DLUAJIT_LIBRARY=${CURRENT_LUA_LIBS}/libluajit-5.1.so" 
+    # FORTE finds LuaJIT through pkg-config
+    export PKG_CONFIG_PATH="${CURRENT_LUA_LIBS}pkgconfig"
+    LUA_FLAGS="-DFORTE_USE_LUATYPES=LuaJIT"
   else
     LUA_FLAGS="" 
   fi
