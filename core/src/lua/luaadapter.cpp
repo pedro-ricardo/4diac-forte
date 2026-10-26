@@ -19,11 +19,12 @@ extern "C" {
 }
 
 #include "luaengine.h"
+#include "luatypehash.h"
 
 namespace forte::lua {
 
   CLuaAdapterTypeEntry::CLuaAdapterTypeEntry(StringId paTypeNameId, std::string paSource) :
-      CRuntimeAdapterTypeEntry(paTypeNameId),
+      CRuntimeAdapterTypeEntry(paTypeNameId, getInternedTypeHash(paSource)),
       mSource(std::move(paSource)) {
   }
 

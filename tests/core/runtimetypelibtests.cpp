@@ -30,7 +30,7 @@ namespace forte::test {
     class CTestRuntimeFBTypeEntry final : public CRuntimeFBTypeEntry {
       public:
         CTestRuntimeFBTypeEntry(StringId paTypeNameId, std::string paDefinition) :
-            CRuntimeFBTypeEntry(paTypeNameId),
+            CRuntimeFBTypeEntry(paTypeNameId, {}),
             mDefinition(std::move(paDefinition)) {
         }
 
@@ -48,7 +48,7 @@ namespace forte::test {
 
     class CTestRuntimeAdapterTypeEntry final : public CRuntimeAdapterTypeEntry {
       public:
-        explicit CTestRuntimeAdapterTypeEntry(StringId paTypeNameId) : CRuntimeAdapterTypeEntry(paTypeNameId) {
+        explicit CTestRuntimeAdapterTypeEntry(StringId paTypeNameId) : CRuntimeAdapterTypeEntry(paTypeNameId, {}) {
         }
 
         std::string_view getDefinition() const override {

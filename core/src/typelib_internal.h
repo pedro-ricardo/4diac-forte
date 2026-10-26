@@ -104,7 +104,12 @@ namespace forte {
       }
 
     protected:
-      explicit CRuntimeTypeEntry(StringId paTypeNameId);
+      /*!\brief Sets name and hash of the type
+       *
+       * @param paTypeHash the version of the definition that type queries report and instance creation checks. Only
+       *                   the view is kept, so the text has to stay valid as long as the entry.
+       */
+      CRuntimeTypeEntry(StringId paTypeNameId, std::string_view paTypeHash);
 
     private:
       mutable std::atomic<std::size_t> mInstanceCount{0};

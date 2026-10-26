@@ -27,10 +27,11 @@ extern "C" {
 #include "forte/resource.h"
 #include "forte/util/devlog.h"
 #include "luaengine.h"
+#include "luatypehash.h"
 
 namespace forte::lua {
   CLuaCFBTypeEntry::CLuaCFBTypeEntry(StringId paTypeNameId, std::string paSource) :
-      CRuntimeFBTypeEntry(paTypeNameId),
+      CRuntimeFBTypeEntry(paTypeNameId, getInternedTypeHash(paSource)),
       mSource(std::move(paSource)) {
   }
 

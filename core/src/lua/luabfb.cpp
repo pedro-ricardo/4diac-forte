@@ -30,6 +30,7 @@ extern "C" {
 #include "forte/util/criticalregion.h"
 #include "forte/util/devlog.h"
 #include "luaengine.h"
+#include "luatypehash.h"
 #include "../resource_internal.h"
 
 namespace forte::lua {
@@ -42,7 +43,7 @@ namespace forte::lua {
   } // namespace
 
   CLuaBFBTypeEntry::CLuaBFBTypeEntry(StringId paTypeNameId, std::string paSource) :
-      CRuntimeFBTypeEntry(paTypeNameId),
+      CRuntimeFBTypeEntry(paTypeNameId, getInternedTypeHash(paSource)),
       mSource(std::move(paSource)) {
   }
 

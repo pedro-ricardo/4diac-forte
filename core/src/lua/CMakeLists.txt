@@ -56,6 +56,7 @@ target_sources(forte-core PRIVATE
         luacfb.h
         luaengine.h
         luainterface.h
+        luatypehash.h
         luatypes.h
         ${FORTE_LUA_SOURCES}
 )

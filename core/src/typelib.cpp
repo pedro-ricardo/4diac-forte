@@ -329,7 +329,8 @@ namespace forte {
   }
 
 #ifdef FORTE_DYNAMIC_TYPE_LOAD
-  CRuntimeTypeEntry::CRuntimeTypeEntry(StringId paTypeNameId) : CTypeEntry(paTypeNameId, std::string_view{}) {
+  CRuntimeTypeEntry::CRuntimeTypeEntry(StringId paTypeNameId, std::string_view paTypeHash) :
+      CTypeEntry(paTypeNameId, paTypeHash) {
   }
 
   EMGMResponse registerRuntimeFBType(std::shared_ptr<const CRuntimeFBTypeEntry> paEntry) {
