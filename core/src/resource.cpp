@@ -291,14 +291,14 @@ namespace forte {
                        const SFBInterfaceSpec &paInterfaceSpec,
                        const StringId paInstanceNameId) :
       CFunctionBlock(paDevice, paInterfaceSpec, paInstanceNameId),
-      mInternal(std::make_unique<ResourceInternal>(*this)),
-      mResourceEventExecution(EcetFactory::create()) {
+      mResourceEventExecution(EcetFactory::create()),
+      mInternal(std::make_unique<ResourceInternal>(*this)) {
   }
 
   CResource::CResource(const SFBInterfaceSpec &paInterfaceSpec, const StringId paInstanceNameId) :
       CFunctionBlock(*this, paInterfaceSpec, paInstanceNameId),
-      mInternal(std::make_unique<ResourceInternal>(*this)),
-      mResourceEventExecution(nullptr) {
+      mResourceEventExecution(nullptr),
+      mInternal(std::make_unique<ResourceInternal>(*this)) {
   }
 
   CResource::~CResource() = default;

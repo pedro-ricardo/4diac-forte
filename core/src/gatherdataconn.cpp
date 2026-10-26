@@ -41,7 +41,7 @@ namespace forte::internal {
       return EMGMResponse::NoSuchObject;
     }
 
-    for (const auto [member, connection, memberName] : mGatheringData) {
+    for (const auto &[member, connection, memberName] : mGatheringData) {
       connection->disconnect(paDstFB, memberName);
       if (connection->isDelegating()) {
         delete connection;
@@ -59,7 +59,7 @@ namespace forte::internal {
   }
 
   void CGatheringDataConnection::readData(CIEC_ANY &) const {
-    for (const auto [member, connection, memberName] : mGatheringData) {
+    for (const auto &[member, connection, memberName] : mGatheringData) {
       connection->readData(*member);
     }
   }
@@ -108,7 +108,7 @@ namespace forte::internal {
   }
 
   CDataConnection *CGatheringDataConnection::getMemberConnection(const CIEC_ANY *paMember) {
-    for (const auto [member, connection, memberName] : mGatheringData) {
+    for (const auto &[member, connection, memberName] : mGatheringData) {
       if (member == paMember) {
         return connection;
       }
