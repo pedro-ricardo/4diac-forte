@@ -444,6 +444,41 @@ return {interfaceSpec = interfaceSpec}
     BOOST_TEST(intValue(*socket.getDO(1)) == 0);
   }
 
+  BOOST_AUTO_TEST_CASE(initialValuesFollowTheView) {
+    const StringId typeName = "luaadaptertest::Initial"_STRID;
+    std::shared_ptr<CLuaAdapterTypeEntry> entry;
+    BOOST_REQUIRE(
+        create(typeName,
+               adapterModule(cEmptyEvents + "numDIs = 1, DINames = {\"PV\"}, DIDataTypeNames = {\"INT\"}, "
+                                            "DIInitialValues = {\"7\"}, numDOs = 2, DONames = {\"Q\", \"CV\"}, "
+                                            "DODataTypeNames = {\"BOOL\", \"INT\"}, "
+                                            "DOInitialValues = {\"\", \"-1\"}"),
+               entry) == EMGMResponse::Ready);
+    BOOST_REQUIRE(registerRuntimeAdapterType(entry) == EMGMResponse::Ready);
+    CAdapterHost plugHost("PlugHost"_STRID, CFBTestDataGlobalFixture::getResource(), typeName, true);
+    CAdapterHost socketHost("SocketHost"_STRID, CFBTestDataGlobalFixture::getResource(), typeName, false);
+    BOOST_REQUIRE(socketHost.initialize());
+    BOOST_REQUIRE(socketHost.changeExecutionState(EMGMCommandType::Start) == EMGMResponse::Ready);
+    CAdapter &plug = *plugHost.getAdapterBlock();
+    CAdapter &socket = *socketHost.getAdapterBlock();
+    BOOST_TEST(intValue(*socket.getDI(0)) == 7);
+    BOOST_TEST(intValue(*socket.getDO(1)) == -1);
+    BOOST_TEST(intValue(*plug.getDO(0)) == 7);
+    BOOST_TEST(intValue(*plug.getDI(1)) == -1);
+
+    static_cast<CIEC_INT &>(*socket.getDI(0)) = CIEC_INT(3);
+    static_cast<CIEC_INT &>(*socket.getDO(1)) = CIEC_INT(4);
+    BOOST_REQUIRE(socketHost.changeExecutionState(EMGMCommandType::Stop) == EMGMResponse::Ready);
+    BOOST_REQUIRE(socketHost.changeExecutionState(EMGMCommandType::Reset) == EMGMResponse::Ready);
+    BOOST_TEST(intValue(*socket.getDI(0)) == 7);
+    BOOST_TEST(intValue(*socket.getDO(1)) == -1);
+
+    BOOST_TEST(createResponse(adapterModule(cEmptyEvents + "numDIs = 1, DINames = {\"PV\"}, "
+                                                           "DIDataTypeNames = {\"INT\"}, DIInitialValues = {\"TRUE\"}, "
+                                                           "numDOs = 0, DONames = {}, DODataTypeNames = {}")) ==
+               EMGMResponse::BadParams);
+  }
+
   BOOST_AUTO_TEST_CASE(pinsCheckTheirType) {
     const StringId first = "luaadaptertest::First"_STRID;
     const StringId second = "luaadaptertest::Second"_STRID;

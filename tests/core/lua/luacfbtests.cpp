@@ -185,6 +185,26 @@ return {
 }
 )lua";
 
+    // PassThrough with initial values, FIX is not connected inside
+    constexpr char cInitialPassThrough[] = R"lua(
+return {
+  interfaceSpec = {
+    numEIs = 1, EINames = {"REQ"}, EIWith = {0, 65535}, EIWithIndexes = {0},
+    numEOs = 1, EONames = {"CNF"}, EOWith = {0, 65535}, EOWithIndexes = {0},
+    numDIs = 1, DINames = {"IN"}, DIDataTypeNames = {"INT"}, DIInitialValues = {"12"},
+    numDOs = 2, DONames = {"OUT", "FIX"}, DODataTypeNames = {"INT", "INT"}, DOInitialValues = {"", "-3"},
+    numAdapters = 0, adapterInstanceDefinition = {}
+  },
+  fbnSpec = {
+    internalFBs = {}, parameters = {},
+    eventConnections = {{srcID = "REQ", srcFBNum = -1, dstID = "CNF", dstFBNum = -1}},
+    dataConnections = {{srcID = "IN", srcFBNum = -1, dstID = "OUT", dstFBNum = -1}},
+    adapterConnections = {},
+    numFBs = 0, numECons = 1, numDCons = 1, numAdpCons = 0, numParams = 0
+  }
+}
+)lua";
+
     constexpr char cCounterAdapter[] = R"lua(
 return {interfaceSpec = {
   numEIs = 2, EINames = {"REQ", "R"}, EIWith = {0, 65535}, EIWithIndexes = {0, -1},
@@ -474,6 +494,23 @@ return {
     BOOST_TEST(pair->changeExecutionState(EMGMCommandType::Reset) == EMGMResponse::Ready);
     BOOST_TEST(intValue(pv) == 5);
     BOOST_TEST(pair->changeExecutionState(EMGMCommandType::Start) == EMGMResponse::Ready);
+  }
+
+  BOOST_AUTO_TEST_CASE(initialValues) {
+    registerCFB("luacfbtest::InitialPassThrough"_STRID, cInitialPassThrough);
+    SInstance fb("InitialPassThrough"_STRID, "luacfbtest::InitialPassThrough"_STRID);
+    BOOST_TEST(intValue(fb->getDI(0)) == 12);
+    BOOST_TEST(intValue(fb->getDO(1)) == -3);
+    triggerAndWait(*fb.mFB, 0);
+    BOOST_TEST(intValue(fb->getDO(0)) == 12);
+
+    static_cast<CIEC_INT &>(*fb->getDI(0)) = CIEC_INT(1);
+    static_cast<CIEC_INT &>(*fb->getDO(1)) = CIEC_INT(2);
+    BOOST_TEST(fb->changeExecutionState(EMGMCommandType::Stop) == EMGMResponse::Ready);
+    BOOST_TEST(fb->changeExecutionState(EMGMCommandType::Reset) == EMGMResponse::Ready);
+    BOOST_TEST(intValue(fb->getDI(0)) == 12);
+    BOOST_TEST(intValue(fb->getDO(1)) == -3);
+    BOOST_TEST(fb->changeExecutionState(EMGMCommandType::Start) == EMGMResponse::Ready);
   }
 
   BOOST_AUTO_TEST_CASE(instanceCount) {

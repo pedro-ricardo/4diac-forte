@@ -255,6 +255,25 @@ return {
 }
 )lua";
 
+    // every kind of variable with an initial value, R without one
+    constexpr char cInitialValues[] = R"lua(
+return {
+  ECC = function(fb, id) end,
+  interfaceSpec = {
+    numEIs = 0, EINames = {}, EIWith = {}, EIWithIndexes = {},
+    numEOs = 0, EONames = {}, EOWith = {}, EOWithIndexes = {},
+    numDIs = 1, DINames = {"A"}, DIDataTypeNames = {"INT"}, DIInitialValues = {"5"},
+    numDOs = 2, DONames = {"S", "B"}, DODataTypeNames = {"STRING", "BOOL"}, DOInitialValues = {"'it$'s'", ""},
+    numAdapters = 0, adapterInstanceDefinition = {}
+  },
+  internalVarsInformation = {
+    numIntVars = 3, intVarsNames = {"ARR", "T", "R"},
+    intVarsDataTypeNames = {"ARRAY [1..3] OF INT", "TIME", "REAL"},
+    intVarsInitialValues = {"[1, 2, 3]", "T#2s", ""}
+  }
+}
+)lua";
+
     EMGMResponse createBFB(StringId paName, const std::string &paSource, std::shared_ptr<CLuaBFBTypeEntry> &paEntry) {
       std::string error;
       const EMGMResponse response = CLuaBFBTypeEntry::create(paName, paSource, paEntry, error);
@@ -294,6 +313,13 @@ return {
 
     TForteInt16 intValue(const CIEC_ANY *paValue) {
       return static_cast<TForteInt16>(static_cast<const CIEC_INT &>(*paValue));
+    }
+
+    std::string text(const CIEC_ANY *paValue) {
+      std::string result;
+      BOOST_REQUIRE(paValue != nullptr);
+      paValue->toString(result);
+      return result;
     }
 
     //! An instance of a run-time type in the test resource, deleted at the end of the scope
@@ -410,6 +436,57 @@ return {
       BOOST_TEST(counter->getPlugPin("NEXT"_STRID)->getAdapterTypeId() == "luabfbtest::ACounter"_STRID);
     }
     BOOST_TEST(entry->getInstanceCount() == 0U);
+  }
+
+  BOOST_AUTO_TEST_CASE(initialValues) {
+    registerBFB("luabfbtest::InitialValues"_STRID, cInitialValues);
+    SInstance fb("Initial"_STRID, "luabfbtest::InitialValues"_STRID);
+    const auto check = [&fb] {
+      BOOST_TEST(intValue(fb->getDI(0)) == 5);
+      BOOST_TEST(text(fb->getDO(0)) == "'it$'s'");
+      BOOST_TEST(text(fb->getDO(1)) == "FALSE");
+      BOOST_TEST(text(fb->getVar(std::array{"ARR"_STRID})) == "[1,2,3]");
+      BOOST_TEST(text(fb->getVar(std::array{"T"_STRID})) == "T#2s");
+      BOOST_TEST(text(fb->getVar(std::array{"R"_STRID})) == "0.0");
+    };
+    check();
+
+    BOOST_REQUIRE(fb->getDI(0)->fromString("9") == 1);
+    BOOST_REQUIRE(fb->getDO(0)->fromString("'x'") == 3);
+    BOOST_REQUIRE(fb->getVar(std::array{"ARR"_STRID})->fromString("[7, 8, 9]") == 9);
+    BOOST_REQUIRE(fb->getVar(std::array{"T"_STRID})->fromString("T#5s") == 4);
+    BOOST_TEST(fb->changeExecutionState(EMGMCommandType::Stop) == EMGMResponse::Ready);
+    BOOST_TEST(fb->changeExecutionState(EMGMCommandType::Reset) == EMGMResponse::Ready);
+    check();
+    BOOST_TEST(fb->changeExecutionState(EMGMCommandType::Start) == EMGMResponse::Ready);
+  }
+
+  BOOST_AUTO_TEST_CASE(initialValueErrors) {
+    const auto withValues = [](const std::string &paDIValues, const std::string &paInternalValues) {
+      return "return {ECC = function(fb, id) end, interfaceSpec = {numEIs = 0, EINames = {}, EIWith = {}, "
+             "EIWithIndexes = {}, numEOs = 0, EONames = {}, EOWith = {}, EOWithIndexes = {}, numDIs = 2, "
+             "DINames = {\"A\", \"B\"}, DIDataTypeNames = {\"INT\", \"ARRAY [0..1] OF BOOL\"}, " +
+             paDIValues +
+             "numDOs = 0, DONames = {}, DODataTypeNames = {}, numAdapters = 0, adapterInstanceDefinition = {}}, "
+             "internalVarsInformation = {numIntVars = 1, intVarsNames = {\"I\"}, intVarsDataTypeNames = {\"TIME\"}" +
+             paInternalValues + "}}";
+    };
+    BOOST_TEST(createResponse(withValues("", "")) == EMGMResponse::Ready);
+    BOOST_TEST(createResponse(withValues("DIInitialValues = {\"\", \"\"}, ", ", intVarsInitialValues = {\"\"}")) ==
+               EMGMResponse::Ready);
+    BOOST_TEST(createResponse(withValues("DIInitialValues = {\"-7\", \"[TRUE, FALSE]\"}, ",
+                                         ", intVarsInitialValues = {\"T#1h2m\"}")) == EMGMResponse::Ready);
+    BOOST_TEST(createResponse(withValues("DIInitialValues = {\"1\"}, ", "")) == EMGMResponse::BadParams);
+    BOOST_TEST(createResponse(withValues("DIInitialValues = \"1\", ", "")) == EMGMResponse::BadParams);
+    BOOST_TEST(createResponse(withValues("DIInitialValues = {1, \"\"}, ", "")) == EMGMResponse::BadParams);
+    BOOST_TEST(createResponse(withValues("DIInitialValues = {\"abc\", \"\"}, ", "")) == EMGMResponse::BadParams);
+    BOOST_TEST(createResponse(withValues("DIInitialValues = {\"5x\", \"\"}, ", "")) == EMGMResponse::BadParams);
+    BOOST_TEST(createResponse(withValues("DIInitialValues = {\"40000\", \"\"}, ", "")) == EMGMResponse::BadParams);
+    BOOST_TEST(createResponse(withValues("DIInitialValues = {\"\", \"[1, 2, 3, 4]\"}, ", "")) ==
+               EMGMResponse::BadParams);
+    BOOST_TEST(createResponse(withValues("DIInitialValues = {\"5\\0\", \"\"}, ", "")) == EMGMResponse::BadParams);
+    BOOST_TEST(createResponse(withValues("", ", intVarsInitialValues = {\"TRUE\"}")) == EMGMResponse::BadParams);
+    BOOST_TEST(createResponse(withValues("", ", intVarsInitialValues = {}")) == EMGMResponse::BadParams);
   }
 
   BOOST_AUTO_TEST_CASE(adapterRoundTrip) {
