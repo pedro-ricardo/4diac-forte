@@ -118,6 +118,7 @@ if (FORTE_DYNAMIC_TYPE_LOAD)
     forte_add_systemtest_hard(Test_Lua_Composite luaComposite.fboot 10)
     forte_add_systemtest_hard(Test_Lua_Structs luaStructs.fboot 10)
     forte_add_systemtest_hard(Test_Lua_InitialValues luaInitialValues.fboot 10)
+    forte_add_systemtest_hard(Test_Lua_InOut luaInOut.fboot 10)
 endif ()
 
 #Test using environement variable as bootfile
