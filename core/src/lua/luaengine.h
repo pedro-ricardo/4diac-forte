@@ -46,6 +46,8 @@ namespace forte::lua {
     public:
       //! The default VM instruction budget per call, 0 for none
       static const unsigned int scmDefaultInstructionLimit;
+      //! The VM instruction budget for running a module while its type is created, so a module cannot hang CREATE
+      static constexpr unsigned int scmDefinitionInstructionLimit = 10000000;
 
       explicit CLuaEngine(unsigned int paInstructionLimit = scmDefaultInstructionLimit);
       ~CLuaEngine();
@@ -128,7 +130,6 @@ namespace forte::lua {
 
       bool setUp();
       void releaseExpiredTypeModules();
-      void pushSandbox();
       void armBudget();
       void disarmBudget();
 

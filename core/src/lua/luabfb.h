@@ -122,6 +122,8 @@ namespace forte::lua {
       static int index(lua_State *paState);
       static int newIndex(lua_State *paState);
       static int call(lua_State *paState);
+      //! Creates the userdata the module's ECC gets as fb, the instance is the light userdata argument
+      static int createHandle(lua_State *paState);
       static void pushMetatable(lua_State *paState);
 
       const std::shared_ptr<CLuaEngine> mEngine;

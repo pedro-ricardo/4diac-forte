@@ -129,6 +129,14 @@ return function() return newEnv(modules) end, stfuncView
       luaL_error(paState, "instruction limit exceeded");
     }
 
+    //! Runs the chunk at 1 in the environment the sandbox factory at 2 returns, returns the chunk's first result
+    int runInSandbox(lua_State *paState) {
+      lua_call(paState, 0, 1);
+      lua_setfenv(paState, 1);
+      lua_call(paState, 0, 1);
+      return 1;
+    }
+
     int setUpState(lua_State *paState) {
       static const struct {
           const char *mName;
@@ -318,9 +326,11 @@ return function() return newEnv(modules) end, stfuncView
       lua_settop(mState, top);
       return false;
     }
-    pushSandbox();
-    lua_setfenv(mState, -2);
-    if (!call(0, 1, paError)) {
+    // the sandbox is built in protected mode as well, it runs Lua code and allocates
+    lua_pushcfunction(mState, runInSandbox);
+    lua_insert(mState, -2);
+    pushRef(mSandboxFactoryRef);
+    if (!call(2, 1, paError)) {
       lua_settop(mState, top);
       return false;
     }
@@ -392,11 +402,6 @@ return function() return newEnv(modules) end, stfuncView
 
   void CLuaEngine::pushSTfunc() {
     pushRef(mSTfuncRef);
-  }
-
-  void CLuaEngine::pushSandbox() {
-    pushRef(mSandboxFactoryRef);
-    lua_call(mState, 0, 1);
   }
 
   void CLuaEngine::armBudget() {

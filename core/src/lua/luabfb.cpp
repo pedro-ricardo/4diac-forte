@@ -51,7 +51,7 @@ namespace forte::lua {
                                         std::shared_ptr<CLuaBFBTypeEntry> &paEntry,
                                         std::string &paError) {
     std::shared_ptr<CLuaBFBTypeEntry> entry(new CLuaBFBTypeEntry(paTypeNameId, std::move(paSource)));
-    CLuaEngine engine;
+    CLuaEngine engine(CLuaEngine::scmDefinitionInstructionLimit);
     if (!engine.isValid()) {
       paError = "could not set up a Lua state";
       return EMGMResponse::Overflow;
@@ -183,18 +183,21 @@ namespace forte::lua {
     lua_State *const state = mEngine->getState();
     lua_pushliteral(state, "ECC");
     lua_rawget(state, -2);
+    lua_remove(state, -2);
     if (!lua_isfunction(state, -1)) {
-      lua_pop(state, 2);
+      lua_pop(state, 1);
       paError = "the module has no ECC function";
       return false;
     }
-    mECCRef = mEngine->ref();
-    lua_pop(state, 1);
-
-    *static_cast<CLuaBFB **>(lua_newuserdata(state, sizeof(CLuaBFB *))) = this;
-    pushMetatable(state);
-    lua_setmetatable(state, -2);
+    // the handle allocates, an allocation error must not reach the panic handler
+    lua_pushcfunction(state, createHandle);
+    lua_pushlightuserdata(state, this);
+    if (!mEngine->call(1, 1, paError)) {
+      lua_pop(state, 1);
+      return false;
+    }
     mHandleRef = mEngine->ref();
+    mECCRef = mEngine->ref();
     return true;
   }
 
@@ -379,6 +382,14 @@ namespace forte::lua {
     }
     instance->sendOutputEvent(key, instance->mInvokingECET);
     return 0;
+  }
+
+  int CLuaBFB::createHandle(lua_State *paState) {
+    CLuaBFB *const instance = static_cast<CLuaBFB *>(lua_touserdata(paState, 1));
+    *static_cast<CLuaBFB **>(lua_newuserdata(paState, sizeof(CLuaBFB *))) = instance;
+    pushMetatable(paState);
+    lua_setmetatable(paState, -2);
+    return 1;
   }
 
   void CLuaBFB::pushMetatable(lua_State *paState) {

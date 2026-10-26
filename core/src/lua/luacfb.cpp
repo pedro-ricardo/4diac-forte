@@ -39,7 +39,7 @@ namespace forte::lua {
                                         std::shared_ptr<CLuaCFBTypeEntry> &paEntry,
                                         std::string &paError) {
     std::shared_ptr<CLuaCFBTypeEntry> entry(new CLuaCFBTypeEntry(paTypeNameId, std::move(paSource)));
-    CLuaEngine engine;
+    CLuaEngine engine(CLuaEngine::scmDefinitionInstructionLimit);
     if (!engine.isValid()) {
       paError = "could not set up a Lua state";
       return EMGMResponse::Overflow;

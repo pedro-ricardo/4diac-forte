@@ -28,7 +28,7 @@ namespace forte::lua {
 
     //! Loads the module to see which kind of FB type it defines
     EMGMResponse getFBKind(StringId paTypeNameId, const std::string &paSource, EFBKind &paKind, std::string &paError) {
-      CLuaEngine engine;
+      CLuaEngine engine(CLuaEngine::scmDefinitionInstructionLimit);
       if (!engine.isValid()) {
         paError = "could not set up a Lua state";
         return EMGMResponse::Overflow;
