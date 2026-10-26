@@ -696,6 +696,15 @@ namespace forte::lua {
       return fail(paError, "internal FB and adapter names must be unique");
     }
 
+    // the composite's own in-out variables feed the internal FBs only, never an output of the composite
+    for (const SCFB_FBConnectionData &connection : mDataConnections) {
+      if (!connection.mSrcFBNameId && !connection.mDstFBNameId &&
+          paInterface.getSpec().getDIOID(std::get<StringId>(connection.mSrcId)) != cgInvalidPortId) {
+        return fail(paError, "the in-out variable " + std::string(std::get<StringId>(connection.mSrcId).data()) +
+                                 " cannot drive an output of the composite");
+      }
+    }
+
     // every data input and output has at most one source
     std::vector<std::pair<StringId, StringId>> destinations;
     for (const SCFB_FBConnectionData &connection : mDataConnections) {
@@ -883,7 +892,10 @@ namespace forte::lua {
           exists = (paIsSource ? spec.getEIID(portName) : spec.getEOID(portName)) != cgInvalidPortId;
           break;
         case EConnectionKind::Data:
-          exists = (paIsSource ? spec.getDIID(portName) : spec.getDOID(portName)) != cgInvalidPortId;
+          // an in-out variable feeds the network like an input, its way out is not a connection
+          exists = paIsSource
+                       ? (spec.getDIID(portName) != cgInvalidPortId || spec.getDIOID(portName) != cgInvalidPortId)
+                       : spec.getDOID(portName) != cgInvalidPortId;
           break;
         case EConnectionKind::Adapter: return fail(paError, "adapter connections need an adapter at both ends");
       }

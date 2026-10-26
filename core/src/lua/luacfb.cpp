@@ -54,10 +54,6 @@ namespace forte::lua {
     lua_rawget(state, module);
     EMGMResponse response = entry->mInterface.parse(state, -1, true, paError);
     lua_pop(state, 1);
-    if (response == EMGMResponse::Ready && !entry->mInterface.getDIOTypes().empty()) {
-      paError = "in-out variables are only supported in basic FB types";
-      response = EMGMResponse::BadParams;
-    }
 
     if (response == EMGMResponse::Ready) {
       lua_pushliteral(state, "fbnSpec");
@@ -90,12 +86,14 @@ namespace forte::lua {
       CCompositeFB(
           paContainer, mTypeEntry->getInterface().getSpec(), paInstanceNameId, mTypeEntry->getNetwork().getFBNData()),
       mDOs(CLuaInterface::createValues(mTypeEntry->getInterface().getDOTypes())),
-      mDIConns(mTypeEntry->getInterface().getDITypes().size(), nullptr) {
+      mDIConns(mTypeEntry->getInterface().getDITypes().size(), nullptr),
+      mDIOs(CLuaInterface::createValues(mTypeEntry->getInterface().getDIOTypes())),
+      mDIOInConns(mDIOs.size(), nullptr) {
     const SFBInterfaceSpec &spec = getFBInterfaceSpec();
     const auto diValues = CLuaInterface::createValues(mTypeEntry->getInterface().getDITypes());
     const auto isMissing = [](const std::unique_ptr<CIEC_ANY> &paValue) { return paValue == nullptr; };
     if (std::none_of(diValues.begin(), diValues.end(), isMissing) &&
-        std::none_of(mDOs.begin(), mDOs.end(), isMissing)) {
+        std::none_of(mDOs.begin(), mDOs.end(), isMissing) && std::none_of(mDIOs.begin(), mDIOs.end(), isMissing)) {
       // the interface to internal connections hold the values of the data inputs
       mIf2InConns.reserve(diValues.size());
       for (TPortId i = 0; i < diValues.size(); ++i) {
@@ -105,6 +103,14 @@ namespace forte::lua {
       for (TPortId i = 0; i < mDOs.size(); ++i) {
         mDOConns.emplace_back(*this, i, *mDOs[i]);
         mDOValues.push_back(mDOs[i].get());
+      }
+      // both in-out connections start out on the composite's own value, only the one onwards is redirected to the
+      // value of its input connection
+      mDIOOutConns.reserve(mDIOs.size());
+      mDIOIf2InConns.reserve(mDIOs.size());
+      for (TPortId i = 0; i < mDIOs.size(); ++i) {
+        mDIOOutConns.push_back(std::make_unique<CInOutDataConnection>(*this, i, mDIOs[i].get()));
+        mDIOIf2InConns.push_back(std::make_unique<CInOutDataConnection>(*this, i, mDIOs[i].get()));
       }
     }
     mEOConns.reserve(spec.getNumEOs());
@@ -130,7 +136,8 @@ namespace forte::lua {
       paError = "could not create an adapter";
       return false;
     }
-    if (mIf2InConns.size() != mDIConns.size() || mDOConns.size() != mDOs.size()) {
+    if (mIf2InConns.size() != mDIConns.size() || mDOConns.size() != mDOs.size() ||
+        mDIOOutConns.size() != mDIOs.size()) {
       paError = "could not create the variables";
       return false;
     }
@@ -145,6 +152,10 @@ namespace forte::lua {
     return (paDONum < mDOValues.size()) ? mDOValues[paDONum] : nullptr;
   }
 
+  CIEC_ANY *CLuaCFB::getDIO(TPortId paDIONum) {
+    return (paDIONum < mDIOs.size()) ? mDIOs[paDIONum].get() : nullptr;
+  }
+
   void CLuaCFB::setInitialValues() {
     CCompositeFB::setInitialValues();
     const auto diTypes = mTypeEntry->getInterface().getDITypes();
@@ -152,6 +163,7 @@ namespace forte::lua {
       diTypes[i].setInitialValue(mIf2InConns[i].getValue());
     }
     CLuaInterface::setInitialValues(mTypeEntry->getInterface().getDOTypes(), mDOs);
+    CLuaInterface::setInitialValues(mTypeEntry->getInterface().getDIOTypes(), mDIOs);
   }
 
   CEventConnection *CLuaCFB::getEOConUnchecked(TPortId paEONum) {
@@ -166,6 +178,14 @@ namespace forte::lua {
     return &mDIConns[paDINum];
   }
 
+  CInOutDataConnection **CLuaCFB::getDIOInConUnchecked(TPortId paDIONum) {
+    return &mDIOInConns[paDIONum];
+  }
+
+  CInOutDataConnection *CLuaCFB::getDIOOutConUnchecked(TPortId paDIONum) {
+    return mDIOOutConns[paDIONum].get();
+  }
+
   IPlugPin *CLuaCFB::getPlugPinUnchecked(TPortId paPlugNum) {
     return mPlugs[paPlugNum].get();
   }
@@ -176,6 +196,10 @@ namespace forte::lua {
 
   CDataConnection *CLuaCFB::getIf2InConUnchecked(TPortId paDINum) {
     return &mIf2InConns[paDINum];
+  }
+
+  CInOutDataConnection *CLuaCFB::getDIOOutConInternalUnchecked(TPortId paDIONum) {
+    return mDIOIf2InConns[paDIONum].get();
   }
 
   bool CLuaCFB::createInternalFBs() {
@@ -259,15 +283,29 @@ namespace forte::lua {
   }
 
   void CLuaCFB::readInputData(TEventID paEIID) {
+    const std::size_t numDIs = mDIConns.size();
     for (const TPortId diNum : mTypeEntry->getInterface().getEIWith(paEIID)) {
-      readData(diNum, mIf2InConns[diNum].getValue(), mDIConns[diNum]);
+      if (diNum < numDIs) {
+        readData(diNum, mIf2InConns[diNum].getValue(), mDIConns[diNum]);
+      } else {
+        // an in-out variable takes the value its input connection refers to
+        const std::size_t dio = diNum - numDIs;
+        readData(numDIs + mDOs.size() + dio, *mDIOs[dio], mDIOOutConns[dio].get());
+      }
     }
   }
 
   void CLuaCFB::writeOutputData(TEventID paEO) {
-    const TPortId numDIs = getFBInterfaceSpec().getNumDIs();
+    const std::size_t numDIs = mDIConns.size();
+    const std::size_t numDOs = mDOs.size();
     for (const TPortId doNum : mTypeEntry->getInterface().getEOWith(paEO)) {
-      writeData(numDIs + doNum, *mDOValues[doNum], mDOConns[doNum]);
+      if (doNum < numDOs) {
+        writeData(numDIs + doNum, *mDOValues[doNum], mDOConns[doNum]);
+      } else {
+        // an in-out variable writes back to the value its input connection refers to
+        const std::size_t dio = doNum - numDOs;
+        writeData(numDIs + numDOs + dio, *mDIOs[dio], *mDIOOutConns[dio]);
+      }
     }
   }
 

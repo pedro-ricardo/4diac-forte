@@ -24,6 +24,7 @@
 #include "forte/cfb.h"
 #include "forte/dataconn.h"
 #include "forte/eventconn.h"
+#include "forte/inoutdataconn.h"
 #include "luainterface.h"
 #include "../anyadapter.h"
 #include "../typelib_internal.h"
@@ -74,6 +75,10 @@ namespace forte::lua {
    *
    * The internal FBs are created by type name. An output driven from inside the network is the value of its source,
    * as in a compiled composite. The composite's own adapters are FBs of the network named like the adapter.
+   *
+   * An in-out variable is passed into the network as in a compiled composite: the internal FBs connected to it
+   * work on the composite's own value, which takes the value its input connection refers to with an input event
+   * and writes it back there with an output event. The in-out connection onwards refers to that same value.
    */
   class CLuaCFB final : private CLuaTypeHolder<CLuaCFBTypeEntry>, public CCompositeFB {
     public:
@@ -90,6 +95,7 @@ namespace forte::lua {
 
       CIEC_ANY *getDI(TPortId paDINum) override;
       CIEC_ANY *getDO(TPortId paDONum) override;
+      CIEC_ANY *getDIO(TPortId paDIONum) override;
 
     protected:
       void setInitialValues() override;
@@ -97,6 +103,8 @@ namespace forte::lua {
       CEventConnection *getEOConUnchecked(TPortId paEONum) override;
       CDataConnection *getDOConUnchecked(TPortId paDONum) override;
       CDataConnection **getDIConUnchecked(TPortId paDINum) override;
+      CInOutDataConnection **getDIOInConUnchecked(TPortId paDIONum) override;
+      CInOutDataConnection *getDIOOutConUnchecked(TPortId paDIONum) override;
       IPlugPin *getPlugPinUnchecked(TPortId paPlugNum) override;
       ISocketPin *getSocketPinUnchecked(TPortId paSocketNum) override;
 
@@ -109,6 +117,7 @@ namespace forte::lua {
       bool createInternalFBs() override;
       void setFBNetworkInitialValues() override;
       CDataConnection *getIf2InConUnchecked(TPortId paDINum) override;
+      CInOutDataConnection *getDIOOutConInternalUnchecked(TPortId paDIONum) override;
 
       void readInputData(TEventID paEIID) override;
       void writeOutputData(TEventID paEO) override;
@@ -124,6 +133,14 @@ namespace forte::lua {
       std::vector<CGenDataConnection> mIf2InConns;
       std::vector<CEventConnection> mEOConns;
       std::vector<CGenDataConnection> mDOConns;
+      //! The composite's own values of the in-out variables, the internal FBs connected to them work on these
+      std::vector<std::unique_ptr<CIEC_ANY>> mDIOs;
+      //! The connection each in-out variable gets its value from, nullptr while it has none
+      std::vector<CInOutDataConnection *> mDIOInConns;
+      //! The in-out connections onwards, each refers to the value of its input connection or else to mDIOs
+      std::vector<std::unique_ptr<CInOutDataConnection>> mDIOOutConns;
+      //! The in-out connections into the network, each refers to mDIOs
+      std::vector<std::unique_ptr<CInOutDataConnection>> mDIOIf2InConns;
       std::vector<std::unique_ptr<CTypedPlugPin>> mPlugs;
       std::vector<std::unique_ptr<CTypedSocketPin>> mSockets;
       bool mCreatingNetwork = false;

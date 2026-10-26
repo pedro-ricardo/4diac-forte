@@ -208,6 +208,8 @@ namespace forte::lua {
    * Connections name their endpoints by FB number: the position in internalFBs, -1 for the composite's own
    * interface, or 65536 + i for its own adapter i (plugs first, then sockets). They are converted to the names
    * a CCompositeFB connects by. A fanned out connection becomes a plain connection from the source of its primary.
+   * The composite's own in-out variables are data sources only, as in a compiled composite, and do not drive its
+   * outputs.
    */
   class CLuaFBNetwork {
     public:
