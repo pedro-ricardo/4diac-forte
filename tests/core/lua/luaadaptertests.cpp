@@ -473,6 +473,10 @@ return {interfaceSpec = interfaceSpec}
     BOOST_TEST(intValue(*socket.getDI(0)) == 7);
     BOOST_TEST(intValue(*socket.getDO(1)) == -1);
 
+    BOOST_TEST(createResponse(adapterModule(cEmptyEvents + "numDIs = 0, DINames = {}, DIDataTypeNames = {}, "
+                                                           "numDOs = 0, DONames = {}, DODataTypeNames = {}, "
+                                                           "numDIOs = 1, DIONames = {\"V\"}, "
+                                                           "DIODataTypeNames = {\"INT\"}")) == EMGMResponse::BadParams);
     BOOST_TEST(createResponse(adapterModule(cEmptyEvents + "numDIs = 1, DINames = {\"PV\"}, "
                                                            "DIDataTypeNames = {\"INT\"}, DIInitialValues = {\"TRUE\"}, "
                                                            "numDOs = 0, DONames = {}, DODataTypeNames = {}")) ==

@@ -551,6 +551,12 @@ return {
     BOOST_TEST(createResponse(network(conn, 1).substr(0, 40)) == EMGMResponse::InvalidObject);
     BOOST_TEST(createResponse("return {" + cEmptyInterface + "}") == EMGMResponse::BadParams);
     BOOST_TEST(createResponse("return {" + cEmptyInterface + ", fbnSpec = 1}") == EMGMResponse::BadParams);
+    // in-out variables are for basic FBs only
+    std::string withInOut = network(conn, 1);
+    const std::size_t numAdapters = withInOut.find("numAdapters");
+    BOOST_REQUIRE(numAdapters != std::string::npos);
+    withInOut.insert(numAdapters, "numDIOs = 1, DIONames = {\"V\"}, DIODataTypeNames = {\"INT\"}, ");
+    BOOST_TEST(createResponse(withInOut) == EMGMResponse::BadParams);
     // counts
     BOOST_TEST(createResponse(network(conn, 2)) == EMGMResponse::BadParams);
     BOOST_TEST(createResponse(network(conn, 0)) == EMGMResponse::BadParams);

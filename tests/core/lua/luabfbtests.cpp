@@ -23,6 +23,7 @@
 #include "forte/resource.h"
 #include "forte/datatypes/forte_bool.h"
 #include "forte/datatypes/forte_int.h"
+#include "forte/inoutdataconn.h"
 
 #include "forte_boost_output_support.h"
 #include "../fbtests/fbtestfixture.h"
@@ -274,6 +275,28 @@ return {
 }
 )lua";
 
+    // REQ adds STEP to the in-out V, which is read with REQ and written back with CNF
+    constexpr char cInOut[] = R"lua(
+local DI_STEP = 33554432
+local DIO_V = 100663296
+return {
+  ECC = function(fb, id)
+    if id == 0 then
+      fb[DIO_V] = fb[DIO_V] + fb[DI_STEP]
+      fb(0)
+    end
+  end,
+  interfaceSpec = {
+    numEIs = 1, EINames = {"REQ"}, EIWith = {0, 1, 65535}, EIWithIndexes = {0},
+    numEOs = 1, EONames = {"CNF"}, EOWith = {0, 65535}, EOWithIndexes = {0},
+    numDIs = 1, DINames = {"STEP"}, DIDataTypeNames = {"INT"}, DIInitialValues = {"1"},
+    numDOs = 0, DONames = {}, DODataTypeNames = {},
+    numDIOs = 1, DIONames = {"V"}, DIODataTypeNames = {"INT"}, DIOInitialValues = {"10"},
+    numAdapters = 0, adapterInstanceDefinition = {}
+  }
+}
+)lua";
+
     EMGMResponse createBFB(StringId paName, const std::string &paSource, std::shared_ptr<CLuaBFBTypeEntry> &paEntry) {
       std::string error;
       const EMGMResponse response = CLuaBFBTypeEntry::create(paName, paSource, paEntry, error);
@@ -487,6 +510,63 @@ return {
     BOOST_TEST(createResponse(withValues("DIInitialValues = {\"5\\0\", \"\"}, ", "")) == EMGMResponse::BadParams);
     BOOST_TEST(createResponse(withValues("", ", intVarsInitialValues = {\"TRUE\"}")) == EMGMResponse::BadParams);
     BOOST_TEST(createResponse(withValues("", ", intVarsInitialValues = {}")) == EMGMResponse::BadParams);
+  }
+
+  BOOST_AUTO_TEST_CASE(inOutVariables) {
+    registerBFB("luabfbtest::InOut"_STRID, cInOut);
+    SInstance first("First"_STRID, "luabfbtest::InOut"_STRID);
+    SInstance second("Second"_STRID, "luabfbtest::InOut"_STRID);
+    BOOST_TEST(first->getFBInterfaceSpec().getNumDIOs() == 1U);
+    BOOST_TEST(intValue(first->getDIO(0)) == 10);
+    BOOST_TEST(first->getDIO(1) == nullptr);
+
+    // unconnected, the in-out variable works on its own value
+    triggerAndWait(*first.mFB, 0);
+    BOOST_TEST(intValue(first->getDIO(0)) == 11);
+    BOOST_TEST(intValue(first->getDataInOut("V"_STRID)) == 11);
+
+    // connected, the second FB reads and writes back the first one's value
+    CInOutDataConnection *const connection = first->getDIOOutConnection("V"_STRID);
+    BOOST_REQUIRE(connection != nullptr);
+    BOOST_REQUIRE(connection->connect(*second.mFB, std::array{"V"_STRID}) == EMGMResponse::Ready);
+    static_cast<CIEC_INT &>(*second->getDI(0)) = CIEC_INT(5);
+    triggerAndWait(*second.mFB, 0);
+    BOOST_TEST(intValue(second->getDIO(0)) == 16);
+    BOOST_TEST(intValue(first->getDIO(0)) == 16);
+    triggerAndWait(*first.mFB, 0);
+    BOOST_TEST(intValue(first->getDIO(0)) == 17);
+    triggerAndWait(*second.mFB, 0);
+    BOOST_TEST(intValue(first->getDIO(0)) == 22);
+    BOOST_TEST(connection->disconnect(*second.mFB, std::array{"V"_STRID}) == EMGMResponse::Ready);
+
+    BOOST_TEST(first->changeExecutionState(EMGMCommandType::Stop) == EMGMResponse::Ready);
+    BOOST_TEST(first->changeExecutionState(EMGMCommandType::Reset) == EMGMResponse::Ready);
+    BOOST_TEST(intValue(first->getDIO(0)) == 10);
+    BOOST_TEST(first->changeExecutionState(EMGMCommandType::Start) == EMGMResponse::Ready);
+  }
+
+  BOOST_AUTO_TEST_CASE(inOutErrors) {
+    const auto withInOuts = [](const std::string &paEIWith, const std::string &paInOuts) {
+      return "return {ECC = function(fb, id) end, interfaceSpec = {numEIs = 1, EINames = {\"REQ\"}, EIWith = {" +
+             paEIWith +
+             "}, EIWithIndexes = {0}, numEOs = 0, EONames = {}, EOWith = {}, EOWithIndexes = {}, numDIs = 1, "
+             "DINames = {\"A\"}, DIDataTypeNames = {\"INT\"}, numDOs = 0, DONames = {}, DODataTypeNames = {}, " +
+             paInOuts + "numAdapters = 0, adapterInstanceDefinition = {}}}";
+    };
+    const std::string oneInOut = "numDIOs = 1, DIONames = {\"V\"}, DIODataTypeNames = {\"INT\"}, ";
+    BOOST_TEST(createResponse(withInOuts("0, 1, 65535", oneInOut)) == EMGMResponse::Ready);
+    BOOST_TEST(createResponse(withInOuts("0, 65535", "")) == EMGMResponse::Ready);
+    BOOST_TEST(createResponse(withInOuts("0, 1, 65535", "")) == EMGMResponse::BadParams);
+    BOOST_TEST(createResponse(withInOuts("2, 65535", oneInOut)) == EMGMResponse::BadParams);
+    BOOST_TEST(createResponse(withInOuts("0, 65535", "numDIOs = 1, DIONames = {\"A\"}, "
+                                                     "DIODataTypeNames = {\"INT\"}, ")) == EMGMResponse::BadParams);
+    BOOST_TEST(createResponse(withInOuts("0, 65535", "numDIOs = 1, DIONames = {\"V\"}, "
+                                                     "DIODataTypeNames = {\"NOPE\"}, ")) ==
+               EMGMResponse::UnsupportedType);
+    BOOST_TEST(createResponse(withInOuts("0, 65535", "numDIOs = 2, DIONames = {\"V\"}, "
+                                                     "DIODataTypeNames = {\"INT\"}, ")) == EMGMResponse::BadParams);
+    BOOST_TEST(createResponse(withInOuts("0, 65535", oneInOut + "DIOInitialValues = {\"x\"}, ")) ==
+               EMGMResponse::BadParams);
   }
 
   BOOST_AUTO_TEST_CASE(adapterRoundTrip) {
