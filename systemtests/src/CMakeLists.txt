@@ -15,6 +15,8 @@ target_sources(forte_systemtest PRIVATE
         GatheringTestStruct_dtp.cpp
         MemberAccessTestStruct_dtp.h
         MemberAccessTestStruct_dtp.cpp
+        LuaTestStruct_dtp.h
+        LuaTestStruct_dtp.cpp
 )
 
 add_subdirectory(modules)

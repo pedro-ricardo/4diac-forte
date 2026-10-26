@@ -113,6 +113,12 @@ if (FORTE_COM_ETH)
     forte_add_systemtest_hard(Test_SEND_RECV_tcp_large comSendRecvTCPLarge.fboot 30)
 endif ()
 
+if (FORTE_DYNAMIC_TYPE_LOAD)
+    forte_add_systemtest_hard(Test_Lua_Types luaTypes.fboot 10)
+    forte_add_systemtest_hard(Test_Lua_Composite luaComposite.fboot 10)
+    forte_add_systemtest_hard(Test_Lua_Structs luaStructs.fboot 10)
+endif ()
+
 #Test using environement variable as bootfile
 ##############################################
 ADD_TEST(NAME Test_Hard_Pass_ENV COMMAND $<TARGET_FILE:forte_systemtest>)
