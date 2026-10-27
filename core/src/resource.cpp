@@ -49,6 +49,12 @@ namespace forte {
     template<typename T>
     void appendTypeNameList(std::string &paValue, const std::vector<T *> &paTypeEntries) {
       if (!paTypeEntries.empty()) {
+        // a few hundred types make tens of KB: size it once instead of growing it by doubling
+        size_t length = paValue.size();
+        for (T *entry : paTypeEntries) {
+          length += std::char_traits<char>::length(entry->getTypeName()) + 2;
+        }
+        paValue.reserve(length);
         for (T *entry : paTypeEntries) {
           paValue += entry->getTypeName();
           paValue += ", ";
@@ -59,6 +65,11 @@ namespace forte {
 
 #ifdef FORTE_DYNAMIC_TYPE_LOAD
     void appendTypeNameList(std::string &paValue, const std::vector<StringId> &paTypeNames) {
+      size_t length = paValue.size();
+      for (const StringId typeName : paTypeNames) {
+        length += typeName.size() + 2;
+      }
+      paValue.reserve(length);
       for (const StringId typeName : paTypeNames) {
         if (!paValue.empty()) {
           paValue += ", ";

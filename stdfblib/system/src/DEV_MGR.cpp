@@ -48,6 +48,15 @@ namespace forte::iec61499::system {
         .mSocketNames = {},
         .mPlugNames = {},
     };
+
+    /*! Free a string's buffer, which clear() keeps. A query answer (e.g. all FB types) or a request carrying a
+     *  run-time type can be tens of KB and must not stay allocated until the next request on small devices.
+     */
+    template<typename T>
+    void releaseString(T &paString) {
+      T released(std::move(paString));
+      paString.clear();
+    }
   } // namespace
 
   DEFINE_FIRMWARE_FB(DEV_MGR, "iec61499::system::DEV_MGR"_STRID)
@@ -76,6 +85,8 @@ namespace forte::iec61499::system {
         executeRQST();
         // send response
         CCommFB::sendData();
+        releaseString(RQST());
+        releaseString(RESP());
       }
     }
   }
@@ -87,6 +98,7 @@ namespace forte::iec61499::system {
       response = mDevice.executeMGMCommand(mCommand);
     }
     parser.generateResponse(RESP(), response);
+    releaseString(mCommand.mAdditionalParams); // copied into RESP
   }
 
   DEV_MGR::DEV_MGR(StringId paInstanceNameId, CFBContainer &paContainer) :
