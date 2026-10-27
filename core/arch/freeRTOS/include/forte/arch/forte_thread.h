@@ -16,7 +16,6 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <memory>
-#include <vector>
 
 #include "forte/datatype.h"
 #include "forte/util/devlog.h"
@@ -102,16 +101,15 @@ namespace forte::arch {
 
       static const int scmForteTaskPriority;
 
-      std::vector<StackType_t> mFreeRTOSStack;
-
       // use a functor instead a lambda, to avoid a "internal linkage warning" at compile-time.
-      struct STCBDeleter {
-          void operator()(StaticTask_t *paTask) const {
-            vPortFree(paTask);
+      struct SPortFreeDeleter {
+          void operator()(void *paMemory) const {
+            vPortFree(paMemory);
           }
       };
 
-      std::unique_ptr<StaticTask_t, STCBDeleter> mTask;
+      std::unique_ptr<StackType_t[], SPortFreeDeleter> mFreeRTOSStack;
+      std::unique_ptr<StaticTask_t, SPortFreeDeleter> mTask;
       TaskHandle_t mFreeRTOSThreadHandle = nullptr;
   };
 

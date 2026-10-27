@@ -22,7 +22,6 @@ namespace forte::arch {
 
   CFreeRTOSThread::CFreeRTOSThread(long paStackSize) :
       CThreadBase(paStackSize),
-      mFreeRTOSStack(getStackDepth()),
       /* Allocate the TCB via pvPortMalloc(), not as a member or via new, because
        * on systems with PSRAM (e.g. ESP32-S3) the CFreeRTOSThread object itself
        * may reside in PSRAM. FreeRTOS requires the TCB to be in internal SRAM;
@@ -62,15 +61,22 @@ namespace forte::arch {
 
   CThreadBase<TaskHandle_t, TaskHandle_t(0), CFreeRTOSThread>::TThreadHandleType
   CFreeRTOSThread::createThread(long paStackSize) {
-    if (mFreeRTOSStack.empty() || !mTask) {
+    /* The stack is allocated with the first start, not in the constructor: every
+     * external event handler is a thread and is constructed with the device, but
+     * most of them are never started. pvPortMalloc() keeps it in internal SRAM
+     * like the TCB and lets a failed allocation be reported instead of aborting. */
+    if (!mFreeRTOSStack) {
+      mFreeRTOSStack.reset(static_cast<StackType_t *>(pvPortMalloc(getStackDepth() * sizeof(StackType_t))));
+    }
+    if (!mFreeRTOSStack || !mTask) {
       DEVLOG_ERROR("Error: Could not allocate memory for FreeRTOS Task!\n");
       return TaskHandle_t(0);
     }
 
     /* Clean up any previously parked task before creating a new one (restart case). */
     deleteFreeRTOSTask();
-    mFreeRTOSThreadHandle = xTaskCreateStatic(threadFunction, "FORTE", mFreeRTOSStack.size(), this,
-                                              scmForteTaskPriority, mFreeRTOSStack.data(), mTask.get());
+    mFreeRTOSThreadHandle = xTaskCreateStatic(threadFunction, "FORTE", getStackDepth(), this, scmForteTaskPriority,
+                                              mFreeRTOSStack.get(), mTask.get());
     if (mFreeRTOSThreadHandle == nullptr) {
       DEVLOG_ERROR("Error: Could not create FreeRTOS Task thread!");
     }
