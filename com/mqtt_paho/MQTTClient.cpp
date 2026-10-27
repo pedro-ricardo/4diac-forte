@@ -207,14 +207,12 @@ namespace forte::com_infra::mqtt_paho {
     mClientConnectionOptions.onFailure = onMqttConnectionFailed;
     mClientConnectionOptions.context = this;
 
-    std::string username;
-    std::string password;
     if (!gMqttClientConfigFile.mArgument.empty()) { // file was provided
       CMQTTClientConfigFileParser::MQTTConfigFromFile result =
-          CMQTTClientConfigFileParser::MQTTConfigFromFile(username, password);
+          CMQTTClientConfigFileParser::MQTTConfigFromFile(mUsername, mPassword);
       if (CMQTTClientConfigFileParser::loadConfig(gMqttClientConfigFile.mArgument, mAddress, result)) {
-        mClientConnectionOptions.username = username.c_str();
-        mClientConnectionOptions.password = password.c_str();
+        mClientConnectionOptions.username = mUsername.c_str();
+        mClientConnectionOptions.password = mPassword.c_str();
       } else {
         return MQTTHandler::eWrongClientID;
       }

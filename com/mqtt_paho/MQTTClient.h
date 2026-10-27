@@ -93,6 +93,9 @@ namespace forte::com_infra::mqtt_paho {
 
       std::string mAddress;
       std::string mClientId;
+      // kept for the connection options, which are used again on every reconnect
+      std::string mUsername;
+      std::string mPassword;
 
       MQTTAsync mAsClient;
       MQTTAsync_connectOptions mClientConnectionOptions;
