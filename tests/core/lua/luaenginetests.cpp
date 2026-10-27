@@ -249,6 +249,35 @@ namespace forte::lua::test {
     BOOST_TEST(error.find("attempt to modify STfunc") != std::string::npos);
   }
 
+  BOOST_AUTO_TEST_CASE(everySTfuncNameLoadsOnDemand) {
+    CLuaEngine engine;
+    std::string error;
+    std::string source = "local STfunc = require 'STfunc'\n";
+    for (const std::string_view name : getSTfuncNames()) {
+      source += "assert(type(STfunc." + std::string(name) + ") == 'function', '" + std::string(name) + "')\n";
+    }
+    source += "return {alias = (STfunc.WLEN == STfunc.LEN), recursive = STfunc.MOVE({{1}})[1][1],"
+              " unknown = (STfunc.NOT_A_FUNCTION == nil and STfunc[1] == nil)}";
+    BOOST_TEST(getSTfuncNames().size() > 70);
+    BOOST_REQUIRE_MESSAGE(engine.loadModule(source, "AllSTfunc", error), error);
+    lua_State *state = engine.getState();
+    lua_getfield(state, -1, "alias");
+    BOOST_TEST(lua_toboolean(state, -1));
+    lua_getfield(state, -2, "recursive");
+    BOOST_TEST(lua_tonumber(state, -1) == 1);
+    lua_getfield(state, -3, "unknown");
+    BOOST_TEST(lua_toboolean(state, -1));
+    lua_settop(state, 0);
+  }
+
+  BOOST_AUTO_TEST_CASE(stfuncErrorsKeepTheFileLines) {
+    CLuaEngine engine;
+    std::string error;
+    // UPPER_BOUND raises 'dim < 1' on line 49 of STfunc.lua
+    BOOST_TEST(!engine.loadModule("require('STfunc').UPPER_BOUND({lo = 1, up = 1}, 0)", "BadDim", error));
+    BOOST_TEST(error.find("STfunc:49: dim < 1") != std::string::npos, error);
+  }
+
   BOOST_AUTO_TEST_CASE(callReturnsResults) {
     CLuaEngine engine;
     lua_pushnumber(engine.getState(), 21);
