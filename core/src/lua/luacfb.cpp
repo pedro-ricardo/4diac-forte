@@ -35,34 +35,44 @@ namespace forte::lua {
       mSource(std::move(paSource)) {
   }
 
-  EMGMResponse CLuaCFBTypeEntry::create(StringId paTypeNameId,
+  EMGMResponse CLuaCFBTypeEntry::create(CLuaEngine &paEngine,
+                                        StringId paTypeNameId,
+                                        std::string paSource,
+                                        std::shared_ptr<CLuaCFBTypeEntry> &paEntry,
+                                        std::string &paError) {
+    if (!paEngine.isValid()) {
+      paError = "could not set up a Lua state";
+      return EMGMResponse::Overflow;
+    }
+    if (!paEngine.loadModule(paSource, paTypeNameId.data(), paError)) {
+      return EMGMResponse::InvalidObject;
+    }
+    lua_State *const state = paEngine.getState();
+    const EMGMResponse response = create(state, lua_gettop(state), paTypeNameId, std::move(paSource), paEntry, paError);
+    lua_pop(state, 1);
+    return response;
+  }
+
+  EMGMResponse CLuaCFBTypeEntry::create(lua_State *paState,
+                                        int paModule,
+                                        StringId paTypeNameId,
                                         std::string paSource,
                                         std::shared_ptr<CLuaCFBTypeEntry> &paEntry,
                                         std::string &paError) {
     std::shared_ptr<CLuaCFBTypeEntry> entry(new CLuaCFBTypeEntry(paTypeNameId, std::move(paSource)));
-    CLuaEngine engine(CLuaEngine::scmDefinitionInstructionLimit);
-    if (!engine.isValid()) {
-      paError = "could not set up a Lua state";
-      return EMGMResponse::Overflow;
-    }
-    if (!engine.loadModule(entry->mSource, paTypeNameId.data(), paError)) {
-      return EMGMResponse::InvalidObject;
-    }
-    lua_State *const state = engine.getState();
-    const int module = lua_gettop(state);
 
-    lua_pushliteral(state, "interfaceSpec");
-    lua_rawget(state, module);
-    EMGMResponse response = entry->mInterface.parse(state, -1, true, paError);
-    lua_pop(state, 1);
+    lua_pushliteral(paState, "interfaceSpec");
+    lua_rawget(paState, paModule);
+    EMGMResponse response = entry->mInterface.parse(paState, -1, true, paError);
+    lua_pop(paState, 1);
 
     if (response == EMGMResponse::Ready) {
-      lua_pushliteral(state, "fbnSpec");
-      lua_rawget(state, module);
-      response = entry->mNetwork.parse(state, -1, entry->mInterface, paTypeNameId, paError);
-      lua_pop(state, 1);
+      lua_pushliteral(paState, "fbnSpec");
+      lua_rawget(paState, paModule);
+      response = entry->mNetwork.parse(paState, -1, entry->mInterface, paTypeNameId, paError);
+      lua_pop(paState, 1);
     }
-    lua_settop(state, module - 1);
+    lua_settop(paState, paModule);
 
     if (response == EMGMResponse::Ready) {
       paEntry = std::move(entry);

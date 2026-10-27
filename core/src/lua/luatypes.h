@@ -19,9 +19,12 @@
 
 namespace forte::lua {
 
+  class CLuaEngine;
+
   /*!\brief Creates an FB type from a Lua module and registers it
    *
    * A module with an ECC function defines a basic FB type, a module with an fbnSpec table a composite FB type.
+   * The module is read in paEngine, the device's definition state, which is kept between types.
    *
    * @return Ready, also when the type exists with the same definition;
    *         InvalidObject if the module does not load; BadParams for a malformed module or type name;
@@ -29,9 +32,9 @@ namespace forte::lua {
    *         InvalidState if the type exists with another definition and has instances;
    *         Overflow if no Lua state could be created
    */
-  EMGMResponse createFBType(StringId paTypeNameId, std::string paSource);
+  EMGMResponse createFBType(CLuaEngine &paEngine, StringId paTypeNameId, std::string paSource);
 
   //! Creates an adapter type from a Lua module and registers it, with the results of createFBType
-  EMGMResponse createAdapterType(StringId paTypeNameId, std::string paSource);
+  EMGMResponse createAdapterType(CLuaEngine &paEngine, StringId paTypeNameId, std::string paSource);
 
 } // namespace forte::lua

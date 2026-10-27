@@ -324,12 +324,14 @@ namespace forte {
         } break;
 #ifdef FORTE_DYNAMIC_TYPE_LOAD
         case EMGMCommandType::CreateFBType:
-          retVal = lua::createFBType(paCommand.mFirstParam.front(), std::move(paCommand.mAdditionalParams));
+          retVal = lua::createFBType(getInternal().getLuaDefinitionEngine(), paCommand.mFirstParam.front(),
+                                     std::move(paCommand.mAdditionalParams));
           // the definition must not show up in the response
           paCommand.mAdditionalParams.clear();
           break;
         case EMGMCommandType::CreateAdapterType:
-          retVal = lua::createAdapterType(paCommand.mFirstParam.front(), std::move(paCommand.mAdditionalParams));
+          retVal = lua::createAdapterType(getInternal().getLuaDefinitionEngine(), paCommand.mFirstParam.front(),
+                                          std::move(paCommand.mAdditionalParams));
           paCommand.mAdditionalParams.clear();
           break;
 #else

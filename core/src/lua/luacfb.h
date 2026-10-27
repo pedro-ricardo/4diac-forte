@@ -31,20 +31,31 @@
 
 namespace forte::lua {
 
+  class CLuaEngine;
+
   /*!\brief A composite FB type defined at run time by a Lua module
    *
    * The module returns {interfaceSpec = …, fbnSpec = …} and holds no code, so its instances need no Lua state.
    */
   class CLuaCFBTypeEntry final : public CRuntimeFBTypeEntry, public std::enable_shared_from_this<CLuaCFBTypeEntry> {
     public:
-      /*!\brief Reads the module and creates the type entry
+      /*!\brief Reads the module in paEngine and creates the type entry
        *
        * The types of the internal FBs are looked up when an instance is created.
        *
        * @return Ready, InvalidObject if the module does not load, BadParams for a malformed module,
        *         UnsupportedType for an unknown data or adapter type
        */
-      static EMGMResponse create(StringId paTypeNameId,
+      static EMGMResponse create(CLuaEngine &paEngine,
+                                 StringId paTypeNameId,
+                                 std::string paSource,
+                                 std::shared_ptr<CLuaCFBTypeEntry> &paEntry,
+                                 std::string &paError);
+
+      //! Creates the type entry from the loaded module table at paModule of paState, which stays there
+      static EMGMResponse create(lua_State *paState,
+                                 int paModule,
+                                 StringId paTypeNameId,
                                  std::string paSource,
                                  std::shared_ptr<CLuaCFBTypeEntry> &paEntry,
                                  std::string &paError);

@@ -26,16 +26,19 @@
 
 namespace forte::lua {
 
+  class CLuaEngine;
+
   //! An adapter type defined at run time by a Lua module that returns {interfaceSpec = …}
   class CLuaAdapterTypeEntry final : public CRuntimeAdapterTypeEntry,
                                      public std::enable_shared_from_this<CLuaAdapterTypeEntry> {
     public:
-      /*!\brief Reads the module and creates the type entry
+      /*!\brief Reads the module in paEngine and creates the type entry
        *
        * @return Ready, InvalidObject if the module does not load, BadParams for a malformed interface,
        *         UnsupportedType for an unknown data type
        */
-      static EMGMResponse create(StringId paTypeNameId,
+      static EMGMResponse create(CLuaEngine &paEngine,
+                                 StringId paTypeNameId,
                                  std::string paSource,
                                  std::shared_ptr<CLuaAdapterTypeEntry> &paEntry,
                                  std::string &paError);

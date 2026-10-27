@@ -53,6 +53,20 @@ namespace forte {
         }
         return mLuaEngine;
       }
+
+      /*!\brief The Lua state that reads the modules of new Lua types, created on first use
+       *
+       * Types are created on the device from the management thread, so only the device's is used. It is kept
+       * between types instead of setting up a state for each, and set up again if that failed, e.g. for lack
+       * of memory.
+       */
+      lua::CLuaEngine &getLuaDefinitionEngine() {
+        if (!mLuaDefinitionEngine || !mLuaDefinitionEngine->isValid()) {
+          mLuaDefinitionEngine.reset(); // a failed state goes before a new one needs memory
+          mLuaDefinitionEngine = std::make_unique<lua::CLuaEngine>(lua::CLuaEngine::scmDefinitionInstructionLimit);
+        }
+        return *mLuaDefinitionEngine;
+      }
 #endif
 
 #ifdef FORTE_TRACE_CTF
@@ -70,6 +84,7 @@ namespace forte {
 
 #ifdef FORTE_DYNAMIC_TYPE_LOAD
       std::shared_ptr<lua::CLuaEngine> mLuaEngine;
+      std::unique_ptr<lua::CLuaEngine> mLuaDefinitionEngine;
 #endif
   };
 } // namespace forte

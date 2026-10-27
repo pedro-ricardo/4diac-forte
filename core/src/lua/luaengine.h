@@ -107,6 +107,9 @@ namespace forte::lua {
       //! Pushes a read only view of the STfunc library
       void pushSTfunc();
 
+      //! Runs a full garbage collection cycle
+      void collectGarbage();
+
       /*!\brief Pushes an IEC value as a Lua value
        *
        * ARRAYs become tables keyed by their IEC index (lower to upper bound) with the fields lo and up,

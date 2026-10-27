@@ -47,46 +47,55 @@ namespace forte::lua {
       mSource(std::move(paSource)) {
   }
 
-  EMGMResponse CLuaBFBTypeEntry::create(StringId paTypeNameId,
+  EMGMResponse CLuaBFBTypeEntry::create(CLuaEngine &paEngine,
+                                        StringId paTypeNameId,
+                                        std::string paSource,
+                                        std::shared_ptr<CLuaBFBTypeEntry> &paEntry,
+                                        std::string &paError) {
+    if (!paEngine.isValid()) {
+      paError = "could not set up a Lua state";
+      return EMGMResponse::Overflow;
+    }
+    if (!paEngine.loadModule(paSource, paTypeNameId.data(), paError)) {
+      return EMGMResponse::InvalidObject;
+    }
+    lua_State *const state = paEngine.getState();
+    const EMGMResponse response = create(state, lua_gettop(state), paTypeNameId, std::move(paSource), paEntry, paError);
+    lua_pop(state, 1);
+    return response;
+  }
+
+  EMGMResponse CLuaBFBTypeEntry::create(lua_State *paState,
+                                        int paModule,
+                                        StringId paTypeNameId,
                                         std::string paSource,
                                         std::shared_ptr<CLuaBFBTypeEntry> &paEntry,
                                         std::string &paError) {
     std::shared_ptr<CLuaBFBTypeEntry> entry(new CLuaBFBTypeEntry(paTypeNameId, std::move(paSource)));
-    CLuaEngine engine(CLuaEngine::scmDefinitionInstructionLimit);
-    if (!engine.isValid()) {
-      paError = "could not set up a Lua state";
-      return EMGMResponse::Overflow;
-    }
-    if (!engine.loadModule(entry->mSource, paTypeNameId.data(), paError)) {
-      return EMGMResponse::InvalidObject;
-    }
-    lua_State *const state = engine.getState();
-    const int module = lua_gettop(state);
 
-    lua_pushliteral(state, "ECC");
-    lua_rawget(state, module);
-    const bool hasECC = lua_isfunction(state, -1);
-    lua_pop(state, 1);
+    lua_pushliteral(paState, "ECC");
+    lua_rawget(paState, paModule);
+    const bool hasECC = lua_isfunction(paState, -1);
+    lua_pop(paState, 1);
     if (!hasECC) {
-      lua_settop(state, module - 1);
       paError = "the module has no ECC function";
       return EMGMResponse::BadParams;
     }
 
-    lua_pushliteral(state, "interfaceSpec");
-    lua_rawget(state, module);
-    EMGMResponse response = entry->mInterface.parse(state, -1, true, paError);
-    lua_pop(state, 1);
+    lua_pushliteral(paState, "interfaceSpec");
+    lua_rawget(paState, paModule);
+    EMGMResponse response = entry->mInterface.parse(paState, -1, true, paError);
+    lua_pop(paState, 1);
 
     if (response == EMGMResponse::Ready) {
-      lua_pushliteral(state, "internalVarsInformation");
-      lua_rawget(state, module);
-      if (!lua_isnil(state, -1)) {
-        response = entry->mInterface.parseInternals(state, -1, paError);
+      lua_pushliteral(paState, "internalVarsInformation");
+      lua_rawget(paState, paModule);
+      if (!lua_isnil(paState, -1)) {
+        response = entry->mInterface.parseInternals(paState, -1, paError);
       }
-      lua_pop(state, 1);
+      lua_pop(paState, 1);
     }
-    lua_settop(state, module - 1);
+    lua_settop(paState, paModule);
 
     if (response == EMGMResponse::Ready) {
       paEntry = std::move(entry);

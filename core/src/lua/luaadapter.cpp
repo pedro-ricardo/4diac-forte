@@ -28,20 +28,20 @@ namespace forte::lua {
       mSource(std::move(paSource)) {
   }
 
-  EMGMResponse CLuaAdapterTypeEntry::create(StringId paTypeNameId,
+  EMGMResponse CLuaAdapterTypeEntry::create(CLuaEngine &paEngine,
+                                            StringId paTypeNameId,
                                             std::string paSource,
                                             std::shared_ptr<CLuaAdapterTypeEntry> &paEntry,
                                             std::string &paError) {
     std::shared_ptr<CLuaAdapterTypeEntry> entry(new CLuaAdapterTypeEntry(paTypeNameId, std::move(paSource)));
-    CLuaEngine engine(CLuaEngine::scmDefinitionInstructionLimit);
-    if (!engine.isValid()) {
+    if (!paEngine.isValid()) {
       paError = "could not set up a Lua state";
       return EMGMResponse::Overflow;
     }
-    if (!engine.loadModule(entry->mSource, paTypeNameId.data(), paError)) {
+    if (!paEngine.loadModule(entry->mSource, paTypeNameId.data(), paError)) {
       return EMGMResponse::InvalidObject;
     }
-    lua_State *const state = engine.getState();
+    lua_State *const state = paEngine.getState();
     lua_pushliteral(state, "interfaceSpec");
     lua_rawget(state, -2);
     EMGMResponse response = entry->mInterface.parse(state, -1, false, paError);

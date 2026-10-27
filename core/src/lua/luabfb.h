@@ -41,12 +41,21 @@ namespace forte::lua {
    */
   class CLuaBFBTypeEntry final : public CRuntimeFBTypeEntry, public std::enable_shared_from_this<CLuaBFBTypeEntry> {
     public:
-      /*!\brief Reads the module and creates the type entry
+      /*!\brief Reads the module in paEngine and creates the type entry
        *
        * @return Ready, InvalidObject if the module does not load, BadParams for a malformed module,
        *         UnsupportedType for an unknown data or adapter type
        */
-      static EMGMResponse create(StringId paTypeNameId,
+      static EMGMResponse create(CLuaEngine &paEngine,
+                                 StringId paTypeNameId,
+                                 std::string paSource,
+                                 std::shared_ptr<CLuaBFBTypeEntry> &paEntry,
+                                 std::string &paError);
+
+      //! Creates the type entry from the loaded module table at paModule of paState, which stays there
+      static EMGMResponse create(lua_State *paState,
+                                 int paModule,
+                                 StringId paTypeNameId,
                                  std::string paSource,
                                  std::shared_ptr<CLuaBFBTypeEntry> &paEntry,
                                  std::string &paError);

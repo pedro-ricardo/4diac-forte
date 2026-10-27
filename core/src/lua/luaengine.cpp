@@ -677,6 +677,12 @@ return function() return newEnv(modules) end, stfuncView
     pushRef(mSTfuncRef);
   }
 
+  void CLuaEngine::collectGarbage() {
+    if (mValid) {
+      lua_gc(mState, LUA_GCCOLLECT, 0);
+    }
+  }
+
   std::vector<std::string_view> getSTfuncNames() {
     const SSTfuncLayout &layout = getSTfuncLayout();
     std::vector<std::string_view> names;
