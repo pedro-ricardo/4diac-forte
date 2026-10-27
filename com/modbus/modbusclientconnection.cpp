@@ -22,6 +22,10 @@
 #include <unistd.h>
 // for open and disabling DTR
 #include <termios.h>
+#ifndef CRTSCTS
+// RTS/CTS flow control is a Linux/BSD extension; without it only HUPCL is cleared
+#define CRTSCTS 0
+#endif
 #endif
 
 namespace forte::com_infra::modbus {
