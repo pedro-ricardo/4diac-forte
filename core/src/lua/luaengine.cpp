@@ -20,8 +20,12 @@ extern "C" {
 #include <lauxlib.h>
 }
 
+#include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <type_traits>
+#include <utility>
+#include <vector>
 
 #include "luabit.h"
 
@@ -68,12 +72,14 @@ static_assert(std::is_same_v<lua_Number, double>, "the Lua types need Lua number
 
 namespace forte::lua {
   namespace {
-    /* Runs once per state with the full base library. Receives the STfunc source and returns the sandbox
-     * factory and the read only STfunc view. Every name a module can reach is captured here, so nothing a
-     * module does to its own environment leaks into another module or into STfunc. */
+    /* Runs once per state with the full base library. Receives the STfunc loaders and aliases (see
+     * SSTfuncLayout) and returns the sandbox factory and the read only STfunc view. Every name a module can
+     * reach is captured here, so nothing a module does to its own environment leaks into another module or
+     * into STfunc. */
     constexpr char cmBootstrap[] = R"lua(
-local stfuncSource = ...
+local loadPrelude, loadFunction, aliases = ...
 local error, ipairs, pairs, setmetatable, tostring = error, ipairs, pairs, setmetatable, tostring
+local rawget, rawset, select, setfenv, unpack = rawget, rawset, select, setfenv, unpack
 
 local safe = {}
 for _, name in ipairs({"assert", "error", "ipairs", "next", "pairs", "pcall", "rawequal", "rawget", "rawset",
@@ -117,12 +123,33 @@ local function newEnv(modules)
   return env
 end
 
-local chunk = assert(loadstring(stfuncSource, "=STfunc"))
-setfenv(chunk, newEnv({}))
-local stfunc = chunk()
-if type(stfunc) ~= "table" then
-  error("STfunc does not return a table")
+-- STfunc is compiled a function at a time on first use, all of it in one environment as the single file was.
+-- Function chunks define into stfunc through definer and reach the other functions through it.
+local stfuncEnv = newEnv({})
+local prelude = loadPrelude()
+setfenv(prelude, stfuncEnv)
+local function pack(...)
+  return {n = select("#", ...), ...}
 end
+local helpers = pack(prelude())
+local stfunc = {}
+local definer = setmetatable({}, {__index = stfunc, __newindex = stfunc})
+setmetatable(stfunc, {
+  __index = function(t, name)
+    local target = aliases[name]
+    if target then
+      local f = t[target]
+      rawset(t, name, f)
+      return f
+    end
+    local chunk = loadFunction(name)
+    if chunk then
+      setfenv(chunk, stfuncEnv)
+      chunk(definer, unpack(helpers, 1, helpers.n))
+    end
+    return rawget(t, name)
+  end
+})
 local stfuncView = readonly(stfunc, "STfunc")
 local modules = {STfunc = stfuncView}
 
@@ -143,6 +170,235 @@ return function() return newEnv(modules) end, stfuncView
       return 1;
     }
 
+    /*! Where the parts of STfunc.lua are, found once by its layout: a library function is a block from a line
+     *  "function STfunc.NAME(" to the next line "end", an alias a line "STfunc.NAME = STfunc.OTHER", and the
+     *  lines "local STfunc = {}" and "return STfunc" are left out. All other lines are the prelude, with the
+     *  helpers the functions share as its top level locals. It is compiled once per state and each function on
+     *  first use, so a state holds only the functions its modules call; the whole library is tens of KB.
+     */
+    struct SSTfuncLayout {
+        struct SFunction {
+            std::string_view mName;
+            std::string_view mText;
+            size_t mLine; //!< of the function's first line in STfunc.lua
+            size_t mNumHelpers; //!< the helpers declared before the function, the ones it can see
+        };
+
+        std::vector<std::string_view> mPrelude; //!< prelude pieces, left out lines become newlines
+        std::vector<std::string_view> mHelpers;
+        std::vector<SFunction> mFunctions;
+        std::vector<std::pair<std::string_view, std::string_view>> mAliases;
+        std::string mError; //!< empty if STfunc.lua has the layout
+    };
+
+    constexpr std::string_view cSTfuncPrefix = "function STfunc.";
+    constexpr std::string_view cSTfuncAliasPrefix = "STfunc.";
+
+    //! Pieces of newlines, so chunks keep the line numbers of STfunc.lua
+    void appendNewlines(std::vector<std::string_view> &paPieces, size_t paCount) {
+      static constexpr char cNewlines[] = "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n";
+      constexpr size_t cMax = sizeof(cNewlines) - 1;
+      for (; paCount > 0; paCount -= std::min(paCount, cMax)) {
+        paPieces.emplace_back(cNewlines, std::min(paCount, cMax));
+      }
+    }
+
+    std::string_view withoutCarriageReturn(std::string_view paLine) {
+      return (!paLine.empty() && paLine.back() == '\r') ? paLine.substr(0, paLine.size() - 1) : paLine;
+    }
+
+    //! The Lua name at the start of paText, empty if there is none
+    std::string_view leadingName(std::string_view paText) {
+      size_t length = 0;
+      while (length < paText.size() &&
+             (std::isalpha(static_cast<unsigned char>(paText[length])) || paText[length] == '_' ||
+              (length > 0 && std::isdigit(static_cast<unsigned char>(paText[length]))))) {
+        ++length;
+      }
+      return paText.substr(0, length);
+    }
+
+    //! The alias a line defines, empty names if it is none
+    std::pair<std::string_view, std::string_view> parseAlias(std::string_view paLine) {
+      if (paLine.substr(0, cSTfuncAliasPrefix.size()) != cSTfuncAliasPrefix) {
+        return {};
+      }
+      std::string_view rest = paLine.substr(cSTfuncAliasPrefix.size());
+      const std::string_view name = leadingName(rest);
+      rest = rest.substr(name.size());
+      constexpr std::string_view cAssign = " = STfunc.";
+      if (name.empty() || rest.substr(0, cAssign.size()) != cAssign) {
+        return {};
+      }
+      rest = rest.substr(cAssign.size());
+      const std::string_view target = leadingName(rest);
+      if (target.empty() || target.size() != rest.size()) {
+        return {};
+      }
+      return {name, target};
+    }
+
+    //! Adds the locals a top level prelude line declares ("local A, B = ..." or "local function A")
+    void parseHelpers(std::string_view paLine, std::vector<std::string_view> &paHelpers) {
+      constexpr std::string_view cLocal = "local ";
+      constexpr std::string_view cFunction = "function ";
+      constexpr std::string_view cSeparator = ", ";
+      if (paLine.substr(0, cLocal.size()) != cLocal) {
+        return;
+      }
+      std::string_view rest = paLine.substr(cLocal.size());
+      if (rest.substr(0, cFunction.size()) == cFunction) {
+        paHelpers.push_back(leadingName(rest.substr(cFunction.size())));
+        return;
+      }
+      for (std::string_view name = leadingName(rest); !name.empty(); name = leadingName(rest)) {
+        paHelpers.push_back(name);
+        rest = rest.substr(name.size());
+        if (rest.substr(0, cSeparator.size()) != cSeparator) {
+          break;
+        }
+        rest = rest.substr(cSeparator.size());
+      }
+    }
+
+    SSTfuncLayout parseSTfuncLayout() {
+      SSTfuncLayout layout;
+      const std::string_view source(reinterpret_cast<const char *>(cgSTfuncSource), sizeof(cgSTfuncSource) - 1);
+      size_t preludeStart = 0;
+      size_t lineNumber = 1;
+      // ends the current run of prelude lines before paEnd, the lines up to paResume are left out
+      auto skip = [&](size_t paEnd, size_t paResume, size_t paLines) {
+        if (paEnd > preludeStart) {
+          layout.mPrelude.push_back(source.substr(preludeStart, paEnd - preludeStart));
+        }
+        appendNewlines(layout.mPrelude, paLines);
+        preludeStart = paResume;
+      };
+      size_t position = 0;
+      while (position < source.size()) {
+        const size_t lineEnd = std::min(source.find('\n', position), source.size());
+        const size_t next = std::min(lineEnd + 1, source.size());
+        const std::string_view line = withoutCarriageReturn(source.substr(position, lineEnd - position));
+
+        if (line.substr(0, cSTfuncPrefix.size()) == cSTfuncPrefix) {
+          const std::string_view name = leadingName(line.substr(cSTfuncPrefix.size()));
+          size_t end = next;
+          size_t lines = 1;
+          bool hasEnd = false;
+          while (end < source.size() && !hasEnd) {
+            const size_t endLineEnd = std::min(source.find('\n', end), source.size());
+            ++lines;
+            hasEnd = withoutCarriageReturn(source.substr(end, endLineEnd - end)) == "end";
+            end = std::min(endLineEnd + 1, source.size());
+          }
+          if (name.empty() || line.substr(cSTfuncPrefix.size() + name.size(), 1) != "(" || !hasEnd) {
+            layout.mError = "STfunc.lua line " + std::to_string(lineNumber) + ": a function without its end line";
+            return layout;
+          }
+          layout.mFunctions.push_back({.mName = name,
+                                       .mText = source.substr(position, end - position),
+                                       .mLine = lineNumber,
+                                       .mNumHelpers = layout.mHelpers.size()});
+          skip(position, end, lines);
+          position = end;
+          lineNumber += lines;
+          continue;
+        }
+        if (const auto alias = parseAlias(line); !alias.first.empty()) {
+          layout.mAliases.push_back(alias);
+          skip(position, next, 1);
+        } else if (line == "local STfunc = {}" || line == "return STfunc") {
+          skip(position, next, 1);
+        } else {
+          parseHelpers(line, layout.mHelpers);
+        }
+        position = next;
+        ++lineNumber;
+      }
+      skip(source.size(), source.size(), 0);
+      return layout;
+    }
+
+    const SSTfuncLayout &getSTfuncLayout() {
+      static const SSTfuncLayout layout = parseSTfuncLayout();
+      return layout;
+    }
+
+    struct SChunkReader {
+        std::vector<std::string_view> mPieces;
+        size_t mNext = 0;
+
+        static const char *read(lua_State *, void *paReader, size_t *paSize) {
+          auto &reader = *static_cast<SChunkReader *>(paReader);
+          while (reader.mNext < reader.mPieces.size()) {
+            const std::string_view piece = reader.mPieces[reader.mNext++];
+            if (!piece.empty()) {
+              *paSize = piece.size();
+              return piece.data();
+            }
+          }
+          *paSize = 0;
+          return nullptr;
+        }
+    };
+
+    //! Compiles the chunk paPieces form as part of STfunc.lua; an error message is pushed on failure
+    int loadSTfuncChunk(lua_State *paState, std::vector<std::string_view> paPieces) {
+      SChunkReader reader{.mPieces = std::move(paPieces)};
+      return lua_load(paState, SChunkReader::read, &reader, "=STfunc");
+    }
+
+    //! A comma separated list of the first paCount helpers
+    std::string helperList(const SSTfuncLayout &paLayout, size_t paCount) {
+      std::string list;
+      for (size_t i = 0; i < paCount; ++i) {
+        list += (i > 0) ? ", " : "";
+        list += paLayout.mHelpers[i];
+      }
+      return list;
+    }
+
+    //! loadPrelude(): the compiled prelude, which returns the helpers in their order
+    int loadPrelude(lua_State *paState) {
+      int status;
+      {
+        const SSTfuncLayout &layout = getSTfuncLayout();
+        std::vector<std::string_view> pieces = layout.mPrelude;
+        const std::string returnHelpers = "\nreturn " + helperList(layout, layout.mHelpers.size()) + "\n";
+        pieces.emplace_back(returnHelpers);
+        status = loadSTfuncChunk(paState, std::move(pieces));
+      }
+      return (status == 0) ? 1 : lua_error(paState);
+    }
+
+    /*! loadFunction(name): the compiled chunk of STfunc[name], nothing for an unknown name. The chunk takes the
+     *  table to define the function in and the helpers. */
+    int loadFunction(lua_State *paState) {
+      int status;
+      {
+        if (lua_type(paState, 1) != LUA_TSTRING) {
+          return 0;
+        }
+        size_t length;
+        const char *const name = lua_tolstring(paState, 1, &length);
+        const SSTfuncLayout &layout = getSTfuncLayout();
+        const auto function =
+            std::find_if(layout.mFunctions.begin(), layout.mFunctions.end(),
+                         [&](const auto &paFunction) { return paFunction.mName == std::string_view(name, length); });
+        if (function == layout.mFunctions.end()) {
+          return 0;
+        }
+        // the header takes the first line, so the function starts on its line of STfunc.lua
+        const std::string header = "local STfunc" + std::string(function->mNumHelpers > 0 ? ", " : "") +
+                                   helperList(layout, function->mNumHelpers) + " = ...";
+        std::vector<std::string_view> pieces{header};
+        appendNewlines(pieces, function->mLine - 1);
+        pieces.push_back(function->mText);
+        status = loadSTfuncChunk(paState, std::move(pieces));
+      }
+      return (status == 0) ? 1 : lua_error(paState);
+    }
+
     int setUpState(lua_State *paState) {
       static const struct {
           const char *mName;
@@ -157,11 +413,23 @@ return function() return newEnv(modules) end, stfuncView
         lua_pushstring(paState, library.mName);
         lua_call(paState, 1, 0);
       }
+      const SSTfuncLayout &layout = getSTfuncLayout();
+      if (!layout.mError.empty()) {
+        lua_pushlstring(paState, layout.mError.data(), layout.mError.size());
+        return lua_error(paState);
+      }
       if (luaL_loadbuffer(paState, cmBootstrap, sizeof(cmBootstrap) - 1, "=forte") != 0) {
         return lua_error(paState);
       }
-      lua_pushlstring(paState, reinterpret_cast<const char *>(cgSTfuncSource), sizeof(cgSTfuncSource) - 1);
-      lua_call(paState, 1, 2);
+      lua_pushcfunction(paState, loadPrelude);
+      lua_pushcfunction(paState, loadFunction);
+      lua_createtable(paState, 0, static_cast<int>(layout.mAliases.size()));
+      for (const auto &[name, target] : layout.mAliases) {
+        lua_pushlstring(paState, name.data(), name.size());
+        lua_pushlstring(paState, target.data(), target.size());
+        lua_rawset(paState, -3);
+      }
+      lua_call(paState, 3, 2);
       return 2;
     }
 
@@ -407,6 +675,18 @@ return function() return newEnv(modules) end, stfuncView
 
   void CLuaEngine::pushSTfunc() {
     pushRef(mSTfuncRef);
+  }
+
+  std::vector<std::string_view> getSTfuncNames() {
+    const SSTfuncLayout &layout = getSTfuncLayout();
+    std::vector<std::string_view> names;
+    for (const auto &function : layout.mFunctions) {
+      names.push_back(function.mName);
+    }
+    for (const auto &[name, target] : layout.mAliases) {
+      names.push_back(name);
+    }
+    return names;
   }
 
   void CLuaEngine::armBudget() {

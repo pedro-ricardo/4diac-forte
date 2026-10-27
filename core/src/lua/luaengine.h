@@ -19,6 +19,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "forte/arch/forte_sync.h"
 
@@ -144,5 +145,8 @@ namespace forte::lua {
       bool mValid;
       std::map<const void *, STypeModule> mTypeModules;
   };
+
+  //! The names STfunc defines, functions and then aliases, each compiled into a state on first use
+  std::vector<std::string_view> getSTfuncNames();
 
 } // namespace forte::lua
