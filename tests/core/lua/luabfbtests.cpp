@@ -18,6 +18,7 @@
 
 #include "../../../core/src/lua/luaadapter.h"
 #include "../../../core/src/lua/luabfb.h"
+#include "../../../core/src/lua/luaengine.h"
 
 #include "forte/ecet.h"
 #include "forte/resource.h"
@@ -36,6 +37,12 @@ using forte::test::CFBTestFixtureBase;
 namespace forte::lua::test {
 
   namespace {
+    //! One state reads every module, as the device's definition state does
+    CLuaEngine &definitionEngine() {
+      static CLuaEngine engine(CLuaEngine::scmDefinitionInstructionLimit);
+      return engine;
+    }
+
     // ACounter from the IDE examples: REQ samples PV, CNF carries Q and CV
     constexpr char cCounterAdapter[] = R"lua(
 return {interfaceSpec = {
@@ -299,7 +306,7 @@ return {
 
     EMGMResponse createBFB(StringId paName, const std::string &paSource, std::shared_ptr<CLuaBFBTypeEntry> &paEntry) {
       std::string error;
-      const EMGMResponse response = CLuaBFBTypeEntry::create(paName, paSource, paEntry, error);
+      const EMGMResponse response = CLuaBFBTypeEntry::create(definitionEngine(), paName, paSource, paEntry, error);
       BOOST_TEST_MESSAGE("create " << paName.data() << ": " << error);
       return response;
     }
@@ -320,8 +327,8 @@ return {
     void registerCounterAdapter() {
       std::shared_ptr<CLuaAdapterTypeEntry> entry;
       std::string error;
-      BOOST_REQUIRE(CLuaAdapterTypeEntry::create("luabfbtest::ACounter"_STRID, cCounterAdapter, entry, error) ==
-                    EMGMResponse::Ready);
+      BOOST_REQUIRE(CLuaAdapterTypeEntry::create(definitionEngine(), "luabfbtest::ACounter"_STRID, cCounterAdapter,
+                                                 entry, error) == EMGMResponse::Ready);
       BOOST_REQUIRE(registerRuntimeAdapterType(entry) == EMGMResponse::Ready);
     }
 

@@ -278,6 +278,26 @@ namespace forte::lua::test {
     BOOST_TEST(error.find("STfunc:49: dim < 1") != std::string::npos, error);
   }
 
+  BOOST_AUTO_TEST_CASE(reusedStateKeepsNoModuleGarbage) {
+    CLuaEngine engine;
+    std::string error;
+    lua_State *state = engine.getState();
+    const auto loadModule = [&] {
+      BOOST_REQUIRE(
+          engine.loadModule("local t = {}\nfor i = 1, 1000 do t[i] = {i} end\nreturn {t = t}", "Garbage", error));
+      lua_settop(state, 0);
+    };
+    // the first module grows the state's internal tables, which stay for the next ones
+    loadModule();
+    engine.collectGarbage();
+    const int before = lua_gc(state, LUA_GCCOUNT, 0);
+    for (int i = 0; i < 20; ++i) {
+      loadModule();
+    }
+    engine.collectGarbage();
+    BOOST_TEST(lua_gc(state, LUA_GCCOUNT, 0) <= before);
+  }
+
   BOOST_AUTO_TEST_CASE(callReturnsResults) {
     CLuaEngine engine;
     lua_pushnumber(engine.getState(), 21);

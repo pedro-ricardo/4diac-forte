@@ -19,6 +19,7 @@
 #include "../../../core/src/lua/luaadapter.h"
 #include "../../../core/src/lua/luabfb.h"
 #include "../../../core/src/lua/luacfb.h"
+#include "../../../core/src/lua/luaengine.h"
 
 #include "forte/ecet.h"
 #include "forte/resource.h"
@@ -38,6 +39,12 @@ using forte::test::CFBTestFixtureBase;
 namespace forte::lua::test {
 
   namespace {
+    //! One state reads every module, as the device's definition state does
+    CLuaEngine &definitionEngine() {
+      static CLuaEngine engine(CLuaEngine::scmDefinitionInstructionLimit);
+      return engine;
+    }
+
     // INIT sets STEP = 1 and clears CV, REQ adds STEP to CV while CV < PV
     constexpr char cCounter[] = R"lua(
 local DI_PV = 33554432
@@ -341,7 +348,7 @@ return {
 
     EMGMResponse createCFB(StringId paName, const std::string &paSource, std::shared_ptr<CLuaCFBTypeEntry> &paEntry) {
       std::string error;
-      const EMGMResponse response = CLuaCFBTypeEntry::create(paName, paSource, paEntry, error);
+      const EMGMResponse response = CLuaCFBTypeEntry::create(definitionEngine(), paName, paSource, paEntry, error);
       BOOST_TEST_MESSAGE("create " << paName.data() << ": " << error);
       return response;
     }
@@ -361,15 +368,16 @@ return {
     void registerBFB(StringId paName, const std::string &paSource) {
       std::shared_ptr<CLuaBFBTypeEntry> entry;
       std::string error;
-      BOOST_REQUIRE(CLuaBFBTypeEntry::create(paName, paSource, entry, error) == EMGMResponse::Ready);
+      BOOST_REQUIRE(CLuaBFBTypeEntry::create(definitionEngine(), paName, paSource, entry, error) ==
+                    EMGMResponse::Ready);
       BOOST_REQUIRE(registerRuntimeFBType(entry) == EMGMResponse::Ready);
     }
 
     void registerCounterAdapter() {
       std::shared_ptr<CLuaAdapterTypeEntry> entry;
       std::string error;
-      BOOST_REQUIRE(CLuaAdapterTypeEntry::create("luacfbtest::ACounter"_STRID, cCounterAdapter, entry, error) ==
-                    EMGMResponse::Ready);
+      BOOST_REQUIRE(CLuaAdapterTypeEntry::create(definitionEngine(), "luacfbtest::ACounter"_STRID, cCounterAdapter,
+                                                 entry, error) == EMGMResponse::Ready);
       BOOST_REQUIRE(registerRuntimeAdapterType(entry) == EMGMResponse::Ready);
     }
 
