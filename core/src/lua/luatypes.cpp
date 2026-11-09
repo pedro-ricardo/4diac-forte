@@ -16,6 +16,7 @@ extern "C" {
 #include <lua.h>
 }
 
+#include "forte/util/criticalregion.h"
 #include "forte/util/devlog.h"
 #include "luaadapter.h"
 #include "luabfb.h"
@@ -25,6 +26,33 @@ extern "C" {
 namespace forte::lua {
   namespace {
     enum class EFBKind { Basic, Composite, Unknown };
+
+    /*!\brief Holds paEngine for one type definition
+     *
+     * The engine may be shared with running instances (FORTE_LUA_SHARED_STATE), so the definition takes the lock
+     * and its own instruction budget, and gives the instances theirs back afterwards.
+     */
+    class CDefinitionScope {
+      public:
+        explicit CDefinitionScope(CLuaEngine &paEngine) :
+            mRegion(paEngine.getLock()),
+            mEngine(paEngine),
+            mInstanceLimit(paEngine.getInstructionLimit()) {
+          paEngine.setInstructionLimit(CLuaEngine::scmDefinitionInstructionLimit);
+        }
+
+        ~CDefinitionScope() {
+          mEngine.setInstructionLimit(mInstanceLimit);
+        }
+
+        CDefinitionScope(const CDefinitionScope &) = delete;
+        CDefinitionScope &operator=(const CDefinitionScope &) = delete;
+
+      private:
+        util::CCriticalRegion mRegion;
+        CLuaEngine &mEngine;
+        const unsigned int mInstanceLimit;
+    };
 
     //! The kind of FB type the module table at paModule defines
     EFBKind getFBKind(lua_State *paState, int paModule) {
@@ -68,6 +96,7 @@ namespace forte::lua {
   } // namespace
 
   EMGMResponse createFBType(CLuaEngine &paEngine, StringId paTypeNameId, std::string paSource) {
+    const CDefinitionScope scope(paEngine);
     std::string error;
     if (!isValidTypeName(paTypeNameId.data())) {
       return report(paEngine, paTypeNameId, EMGMResponse::BadParams, "invalid type name");
@@ -107,6 +136,7 @@ namespace forte::lua {
   }
 
   EMGMResponse createAdapterType(CLuaEngine &paEngine, StringId paTypeNameId, std::string paSource) {
+    const CDefinitionScope scope(paEngine);
     std::string error;
     if (!isValidTypeName(paTypeNameId.data())) {
       return report(paEngine, paTypeNameId, EMGMResponse::BadParams, "invalid type name");

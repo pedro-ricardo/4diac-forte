@@ -44,14 +44,20 @@ namespace forte {
 #ifdef FORTE_DYNAMIC_TYPE_LOAD
       /*!\brief The Lua state of this resource's Lua FB instances, created on first use
        *
-       * Instances keep a reference, so the state outlives them however the resource is torn down.
+       * Instances keep a reference, so the state outlives them however the resource is torn down. A state that
+       * could not be set up, e.g. for lack of memory, is set up again on the next call.
        * Only called from the management thread, which creates the instances.
        */
       const std::shared_ptr<lua::CLuaEngine> &getLuaEngine() {
-        if (!mLuaEngine) {
+#ifdef FORTE_LUA_SHARED_STATE
+        return getSharedLuaEngine();
+#else
+        if (!mLuaEngine || !mLuaEngine->isValid()) {
+          mLuaEngine.reset(); // a failed state goes before a new one needs memory
           mLuaEngine = std::make_shared<lua::CLuaEngine>();
         }
         return mLuaEngine;
+#endif
       }
 
       /*!\brief The Lua state that reads the modules of new Lua types, created on first use
@@ -61,11 +67,15 @@ namespace forte {
        * of memory.
        */
       lua::CLuaEngine &getLuaDefinitionEngine() {
+#ifdef FORTE_LUA_SHARED_STATE
+        return *getSharedLuaEngine();
+#else
         if (!mLuaDefinitionEngine || !mLuaDefinitionEngine->isValid()) {
-          mLuaDefinitionEngine.reset(); // a failed state goes before a new one needs memory
+          mLuaDefinitionEngine.reset();
           mLuaDefinitionEngine = std::make_unique<lua::CLuaEngine>(lua::CLuaEngine::scmDefinitionInstructionLimit);
         }
         return *mLuaDefinitionEngine;
+#endif
       }
 #endif
 
@@ -82,7 +92,21 @@ namespace forte {
       trace::CForteTracer mTracer;
 #endif // FORTE_TRACE_CTF
 
-#ifdef FORTE_DYNAMIC_TYPE_LOAD
+#ifdef FORTE_LUA_SHARED_STATE
+      /*!\brief The one Lua state of the process: type definitions and the instances of every resource
+       *
+       * Saves a state per resource and the definition state on small targets; the resources then take turns
+       * running Lua code. Set up again after a failed set up like the others.
+       */
+      static const std::shared_ptr<lua::CLuaEngine> &getSharedLuaEngine() {
+        static std::shared_ptr<lua::CLuaEngine> engine;
+        if (!engine || !engine->isValid()) {
+          engine.reset();
+          engine = std::make_shared<lua::CLuaEngine>();
+        }
+        return engine;
+      }
+#elif defined(FORTE_DYNAMIC_TYPE_LOAD)
       std::shared_ptr<lua::CLuaEngine> mLuaEngine;
       std::unique_ptr<lua::CLuaEngine> mLuaDefinitionEngine;
 #endif

@@ -559,6 +559,11 @@ return function() return newEnv(modules) end, stfuncView
     }
     lua_atpanic(mState, panic);
     mValid = setUp();
+    if (!mValid) {
+      // what the failed set up allocated goes now, not when the owner gives up the engine
+      lua_close(mState);
+      mState = nullptr;
+    }
   }
 
   CLuaEngine::~CLuaEngine() {

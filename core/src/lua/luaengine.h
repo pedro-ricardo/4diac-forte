@@ -73,6 +73,11 @@ namespace forte::lua {
         return mInstructionLimit;
       }
 
+      //! Changes the budget of the next calls, e.g. while a state shared with instances reads a type's module
+      void setInstructionLimit(unsigned int paInstructionLimit) {
+        mInstructionLimit = paInstructionLimit;
+      }
+
       /*!\brief Runs a module chunk in a fresh sandbox
        *
        * On success the table returned by the chunk is pushed onto the stack.

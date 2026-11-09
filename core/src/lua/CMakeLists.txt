@@ -36,6 +36,12 @@ set(FORTE_LUA_INSTRUCTION_LIMIT
 )
 mark_as_advanced(FORTE_LUA_INSTRUCTION_LIMIT)
 
+option(FORTE_LUA_SHARED_STATE
+       "One Lua state for the type definitions and the instances of all resources, which then take turns running Lua code (saves memory on small targets)"
+       OFF
+)
+mark_as_advanced(FORTE_LUA_SHARED_STATE)
+
 set(FORTE_STFUNC_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/lua_src/STfunc.lua)
 set(FORTE_STFUNC_HEADER ${CMAKE_CURRENT_BINARY_DIR}/generated/stfunc_source.h)
 add_custom_command(
@@ -83,3 +89,7 @@ set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/luaengine.cpp TARGET_DIR
 target_include_directories(forte-core PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
 target_link_libraries(forte-core PRIVATE forte-lua-library)
 target_compile_definitions(forte-core PUBLIC FORTE_DYNAMIC_TYPE_LOAD)
+# public: it changes the layout of ResourceInternal, which the tests include
+if (FORTE_LUA_SHARED_STATE)
+    target_compile_definitions(forte-core PUBLIC FORTE_LUA_SHARED_STATE)
+endif ()
